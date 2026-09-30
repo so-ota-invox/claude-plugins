@@ -53,6 +53,8 @@ ID_FIELDS = {
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
 MERMAID_VERSION = "12.0.0"
+# MERMAID_URL のファイルの sha384 を base64 にした値。版を上げたら計算し直す:
+# curl -sL <MERMAID_URL> | openssl dgst -sha384 -binary | openssl base64 -A
 MERMAID_INTEGRITY = "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
 
@@ -61,7 +63,7 @@ CHILD_RE = re.compile(rf"^{CHILD}$")
 ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
 DEF_RE = re.compile(rf"^((?:R|AC|S|Q)-(?:{CHILD}-)?\d{{3}}):(?: (.*))?$")
 KV_RE = re.compile(r"^([^\s:]+):(?: (.*))?$")
-UPSTREAM_RE = re.compile(r"^([^\s@]+)@([0-9a-f]{7,40})$")
+UPSTREAM_RE = re.compile(r"^([^\s@]+)@([0-9a-f]{12})$")
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 COLUMN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
 HEADING_RE = re.compile(r"^(#{1,6})(?: +(.*))?$")
@@ -71,6 +73,8 @@ SEPARATOR_CELL_RE = re.compile(r"^-{3,}$")
 LINK_DEST_RE = re.compile(r"^[^\s()<>]+$")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 WEB_RE = re.compile(r"^(?:https?|mailto):")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+UNSPLIT_RE = re.compile(r"^分割しない。理由: \S")
 ENTITY_RE = re.compile(r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});")
 HTML_TAG_RE = re.compile(r"<[A-Za-z/!?]")
 BANNED_LINES = (
@@ -202,6 +206,19 @@ def check_text(text, errors):
         errors.append("HTML は使えない（< を記号として書くならコードで囲む）")
 
 
+def link_dest_error(dest):
+    """リンク先の書式の誤りを返す。無ければ None。相対パスの先が実在するかは check で見る。"""
+    if CONTROL_RE.search(dest):
+        return "リンク先に制御文字を入れない"
+    if dest.startswith("#") or WEB_RE.match(dest):
+        return None
+    if SCHEME_RE.match(dest):
+        return f"リンク先は相対パスか http・https・mailto にする: {dest}"
+    if dest.startswith("/"):
+        return f"リンク先は相対パスで書く: {dest}"
+    return None
+
+
 def parse_inline(s, errors, in_link=False, in_bold=False):
     tokens = []
     buf = []
@@ -243,6 +260,9 @@ def parse_inline(s, errors, in_link=False, in_bold=False):
                 if end < 0 or not LINK_DEST_RE.match(dest) or close == i + 1:
                     errors.append("リンクは [文字](先) の形で書く。先に空白と括弧を入れない")
                 else:
+                    msg = link_dest_error(dest)
+                    if msg:
+                        errors.append(msg)
                     flush()
                     tokens.append(("link", parse_inline(s[i + 1:close], errors, True, in_bold), dest))
                     i = end + 1
@@ -314,7 +334,7 @@ class Parser:
     def __init__(self, text):
         self.errors = []
         self.blocks = []
-        if text.startswith("﻿"):
+        if text.startswith("\ufeff"):
             self.error(1, "BOM を付けない")
             text = text[1:]
         if "\r" in text:
@@ -546,9 +566,10 @@ def parse_ids(field, key, want, err, allow_none=False):
     if not value or (allow_none and value == "なし"):
         return []
     ids = [m.group(0) for m in ID_RE.finditer(value)]
-    rest = ID_RE.sub("", value).replace("、", "").strip()
-    if not ids or rest or any(split_id(i)[0] != want for i in ids):
+    if any(not ID_RE.fullmatch(p) for p in value.split("、")) or any(split_id(i)[0] != want for i in ids):
         err(item.line, f"{key} は {want}-001、{want}-002 のように番号を「、」で区切って書く")
+    elif len(set(ids)) != len(ids):
+        err(item.line, f"{key} に同じ番号を重ねて書かない")
     return [i for i in ids if split_id(i)[0] == want]
 
 
@@ -592,7 +613,13 @@ class Doc:
         self.split = None  # 子の名前 -> {"line", "reqs", "deps"}
         self.tables = None  # テーブル名 -> カラム名の集合
         self.data_use = []  # [(行, テーブル, カラム)]
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            self.blocks = []
+            self.line_count = 1
+            self.syntax_errors = [(1, f"読めない: {e.strerror or e}")]
+            return
         try:
             text = data.decode("utf-8")
             decode_error = False
@@ -909,8 +936,9 @@ class Doc:
         lists = [b for b in body if b.kind == "list"]
         if not lists:
             paras = [b for b in body if b.kind == "para"]
-            if paras and not paras[0].lines[0][1].startswith("分割しない"):
-                err(paras[0].line, "分割しないときは「分割しない。理由: …」と書く")
+            text = "".join(t for _, t, _ in paras[0].lines) if paras else ""
+            if body and not UNSPLIT_RE.match(text):
+                err((paras or body)[0].line, "分割しないときは「分割しない。理由: …」と書く")
             return
         for b in lists:
             for item in b.items:
@@ -995,21 +1023,17 @@ class Doc:
                         self.data_use.append((c.line, table, col))
 
     def check_links(self, err):
+        """相対パスのリンク先が実在するかを見る。リンク先の書式は Parser で見る。"""
         for line, tokens, _, _ in self.inlines():
             for tok in iter_tokens(tokens):
                 if tok[0] != "link":
                     continue
                 dest = tok[2]
-                if dest.startswith("#") or WEB_RE.match(dest):
+                if link_dest_error(dest) or dest.startswith("#") or WEB_RE.match(dest):
                     continue
-                if SCHEME_RE.match(dest):
-                    err(line, f"リンク先は相対パスか http・https・mailto にする: {dest}")
-                elif dest.startswith("/"):
-                    err(line, f"リンク先は相対パスで書く: {dest}")
-                else:
-                    target = dest.split("#", 1)[0].split("?", 1)[0]
-                    if target and not (self.path.parent / unquote(target)).exists():
-                        err(line, f"リンク先が無い: {dest}")
+                target = dest.split("#", 1)[0].split("?", 1)[0]
+                if target and not (self.path.parent / unquote(target)).exists():
+                    err(line, f"リンク先が無い: {dest}")
 
 
 class Workspace:
@@ -1070,7 +1094,11 @@ def check_upstream(doc, err):
         if not target.is_file():
             err(c.line, f"上流のファイルが無い: {rel}")
             continue
-        current = blob_hash(target.read_bytes())
+        try:
+            current = blob_hash(target.read_bytes())
+        except OSError as e:
+            err(c.line, f"上流のファイルを読めない: {rel}（{e.strerror or e}）")
+            continue
         if not current.startswith(short):
             err(c.line, f"上流の hash が合わない: {rel}（今は {current[:12]}）。下流に影響を反映してから書き換える")
         if target.name in DOC_FILES:
@@ -1163,6 +1191,25 @@ def check_gate(doc, gate, require_approved, err):
         err(entry[0].line if entry else 1, "状態が approved でない")
 
 
+def missing_downstream(doc):
+    """まだ無い下流の文書を (行, パス, それが無いと止める工程) の列で返す。"""
+    s = doc.spec_rel
+    out = []
+    if doc.kind == "requirements":
+        if doc.spec_doc("design") is None:
+            out.append((1, f"{s}/design.md", "リリース"))
+    elif doc.kind == "design":
+        if doc.child is None:
+            for name, c in (doc.split or {}).items():
+                for kind in ("design", "plan"):
+                    if doc.spec_doc(kind, name) is None:
+                        out.append((c["line"], f"{s}/{name}/{kind}.md", "リリース"))
+        if doc.spec_doc("plan", doc.child) is None:
+            here = f"{s}/{doc.child}" if doc.child else s
+            out.append((1, f"{here}/plan.md", "実装"))
+    return out
+
+
 def check_doc(doc, gate=None, require_approved=False):
     """文書 1 本の誤りを (行, メッセージ) の列で返す。書式の誤りがあれば書式だけを返す。"""
     if doc.syntax_errors:
@@ -1182,6 +1229,9 @@ def check_doc(doc, gate=None, require_approved=False):
     if doc.kind == "design":
         check_data_use(doc, err)
     check_gate(doc, gate, require_approved, err)
+    for line, rel, stage in missing_downstream(doc):
+        if gate and STAGES.index(stage) <= STAGES.index(gate):
+            err(line, f"下流の文書が無い: {rel}")
     return errors
 
 
@@ -1192,19 +1242,23 @@ def esc(text):
     return html.escape(text, quote=True)
 
 
-def rewrite_link(dest):
-    """型の文書への .md のリンクを .html へ書き換える。"""
-    if dest.startswith("#") or SCHEME_RE.match(dest):
-        return dest
-    path, sep, frag = dest.partition("#")
-    if path.rsplit("/", 1)[-1] in DOC_FILES:
-        path = path[:-3] + ".html"
-    return path + sep + frag
-
-
 class Renderer:
     def __init__(self, doc):
         self.doc = doc
+
+    def link_href(self, dest):
+        """行内リンクの href。書式の誤りがあるリンク先は None。specs/ の下の型の文書への .md は .html に書き換える。"""
+        if link_dest_error(dest) is not None:
+            return None
+        if dest.startswith("#") or WEB_RE.match(dest):
+            return dest
+        path, sep, frag = dest.partition("#")
+        if path.rsplit("/", 1)[-1] in DOC_FILES:
+            target = Path(os.path.normpath(str(self.doc.path.parent / unquote(path))))
+            other = self.doc.ws.load(target)
+            if other is not None and other.root is not None:
+                path = path[:-3] + ".html"
+        return path + sep + frag
 
     def href_to(self, path):
         return os.path.relpath(str(path), str(self.doc.path.parent)).replace(os.sep, "/")
@@ -1277,8 +1331,12 @@ class Renderer:
 
     def doc_link(self, rel, code):
         """上流や親へのリンク。表示名は相手の文書の見出しから取る。"""
-        target = self.doc.root.joinpath(*[p for p in rel.split("/") if p])
+        if rel.startswith("/") or any(p in ("", ".", "..") for p in rel.split("/")):
+            return esc(code or rel)
+        target = self.doc.root.joinpath(*rel.split("/"))
         href = self.href_to(target)
+        if SCHEME_RE.match(href) or href[:1] <= " ":
+            href = "./" + href
         label = rel
         if target.name in DOC_FILES:
             href = href[:-3] + ".html"
@@ -1324,7 +1382,9 @@ class Renderer:
             elif tok[0] == "bold":
                 parts.append(f"<strong>{self.inline(tok[1], link_ids)}</strong>")
             else:
-                parts.append(f'<a href="{esc(rewrite_link(tok[2]))}">{self.inline(tok[1], False)}</a>')
+                href = self.link_href(tok[2])
+                label = self.inline(tok[1], False)
+                parts.append(f'<a href="{esc(href)}">{label}</a>' if href is not None else label)
         return "".join(parts)
 
     def text(self, s):
@@ -1383,29 +1443,65 @@ def expand(args):
     return unique, errors
 
 
-def run_check(args, gate=None, require_approved=False):
+def run_check(args, gate=None, require_approved=False, unchecked=None):
+    """unchecked には、この工程では止めないが、無いので照合していない下流の文書を集める。"""
     ws = Workspace()
     files, errors = expand(args)
     for path in files:
         doc = ws.load(path)
         errors.extend((path, line, msg) for line, msg in check_doc(doc, gate, require_approved))
+        if unchecked is None or doc.root is None or doc.syntax_errors:
+            continue
+        for _, rel, stage in missing_downstream(doc):
+            stops = gate and STAGES.index(stage) <= STAGES.index(gate)
+            if not stops and rel not in unchecked:
+                unchecked.append(rel)
     return files, errors
 
 
-def run_html(args):
+def run_html(args, notes=None):
+    """notes には、終了コードに関わらない知らせ（警告・消した HTML）を集める。"""
+    notes = [] if notes is None else notes
     ws = Workspace()
     files, errors = expand(args)
     written = []
     for path in files:
         doc = ws.load(path)
+        out = path.with_suffix(".html")
         problems = doc.syntax_errors or (doc.local_errors if doc.root is None else [])
         if problems:
             errors.extend((path, line, msg) for line, msg in problems)
+            if doc.root is not None and out.is_file():
+                try:
+                    out.unlink()
+                except OSError as e:
+                    errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}"))
+                else:
+                    notes.append((path, 1, f"古い {out.name} を消した"))
             continue
-        out = path.with_suffix(".html")
-        out.write_bytes(Renderer(doc).render().encode("utf-8"))
+        doc.check_links(lambda line, msg: notes.append((path, line, f"警告: {msg}")))
+        try:
+            out.write_bytes(Renderer(doc).render().encode("utf-8"))
+        except OSError as e:
+            errors.append((path, 1, f"{out.name} を書けない: {e.strerror or e}"))
+            continue
         written.append(out)
     return written, errors
+
+
+def run_hash(arg):
+    """上流に書く パス@hash の行と終了コードを返す。"""
+    path = Path(os.path.abspath(arg))
+    if not path.is_file():
+        return 1, f"{arg}:1: ファイルが無い"
+    for anc in path.parents:
+        if anc.name == "specs":
+            try:
+                data = path.read_bytes()
+            except OSError as e:
+                return 1, f"{arg}:1: 読めない: {e.strerror or e}"
+            return 0, f"{path.relative_to(anc.parent).as_posix()}@{blob_hash(data)[:12]}"
+    return 1, f"{arg}:1: specs/ の下のファイルを指定する"
 
 
 def display(path):
@@ -1442,30 +1538,26 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "check":
-        files, errors = run_check(args.paths, args.gate, args.approved)
+        unchecked = []
+        files, errors = run_check(args.paths, args.gate, args.approved, unchecked)
         for line in format_errors(errors):
             print(line)
         if errors:
             return 1
-        print(f"ok: {len(files)} 件")
+        note = f"（下流が無く照合していない: {'、'.join(unchecked)}）" if unchecked else ""
+        print(f"ok: {len(files)} 件{note}")
         return 0
     if args.command == "html":
-        written, errors = run_html(args.paths)
-        for line in format_errors(errors):
+        notes = []
+        written, errors = run_html(args.paths, notes)
+        for line in format_errors(errors) + format_errors(notes):
             print(line)
         for out in written:
             print(display(out))
         return 1 if errors else 0
-    path = Path(os.path.abspath(args.path))
-    if not path.is_file():
-        print(f"{args.path}:1: ファイルが無い")
-        return 1
-    for anc in path.parents:
-        if anc.name == "specs":
-            print(f"{path.relative_to(anc.parent).as_posix()}@{blob_hash(path.read_bytes())[:12]}")
-            return 0
-    print(f"{args.path}:1: specs/ の下のファイルを指定する")
-    return 1
+    code, line = run_hash(args.path)
+    print(line)
+    return code
 
 
 if __name__ == "__main__":
