@@ -477,7 +477,9 @@ class CheckTest(unittest.TestCase):
 
     def test_missing_upstream_file(self):
         self.repo.path(REQ).unlink()
-        self.assertIn(f"上流のファイルが無い: {REQ}", self.repo.messages(DESIGN))
+        messages = self.repo.messages(DESIGN)
+        self.assertIn(f"上流のファイルが無い: {REQ}", messages)
+        self.assertIn(f"要件定義書が無い: {REQ}", messages)
 
     def test_upstream_hash_ignores_crlf_checkout(self):
         # Windows の git が CRLF で取り出しても、上流の hash は合う
@@ -692,14 +694,14 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(len(messages), 1, messages)
         self.assertTrue(messages[0].startswith("読めない: "), messages)
         messages = self.repo.messages(DESIGN)
-        self.assertTrue(any(m.startswith(f"上流のファイルを読めない: {REQ}（") for m in messages), messages)
+        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
 
     def test_unreadable_directory(self):
         # Python 3.12 までの Path.exists は EACCES で例外を送る。トレースバックにせず 1 行のエラーにする
         lock(self, self.repo.path(f"{SPEC}/mocks"))
         messages = self.repo.messages(DESIGN)
         self.assertEqual(len(messages), 1, messages)
-        self.assertTrue(messages[0].startswith("リンク先を調べられない: mocks/list.html（"), messages)
+        self.assertTrue(messages[0].startswith("リンク先 mocks/list.html を調べられない: "), messages)
 
 
 class SplitTest(unittest.TestCase):
@@ -828,6 +830,12 @@ class SplitTest(unittest.TestCase):
         lock(self, self.repo.path(DESIGN))
         messages = self.repo.messages(self.child_path("billing"))
         self.assertTrue(any(m.startswith(f"親の設計書 {DESIGN} を読めない: ") for m in messages), messages)
+        self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
+
+    def test_missing_parent(self):
+        self.repo.path(DESIGN).unlink()
+        messages = self.repo.messages(self.child_path("billing"))
+        self.assertIn(f"親の設計書が無い: {DESIGN}", messages)
         self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
 
     def test_child_data_use_refers_to_parent_tables(self):

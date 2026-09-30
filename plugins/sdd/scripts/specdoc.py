@@ -1164,7 +1164,7 @@ class Doc:
                 try:
                     kind = exact_kind(base, [] if rel == "." else rel.split(os.sep))
                 except OSError as e:
-                    err(line, f"リンク先を調べられない: {dest}（{e.strerror or e}）")
+                    err(line, f"リンク先 {dest} を調べられない: {e.strerror or e}")
                     continue
                 if kind is None:
                     err(line, f"リンク先が無い: {dest}")
@@ -1234,7 +1234,7 @@ def check_upstream(doc, err):
             err(c.line, f"上流のファイルが無い: {rel}")
             continue
         if up.read_error is not None:
-            err(c.line, f"上流のファイルを読めない: {rel}（{up.read_error}）")
+            err(c.line, f"上流のファイル {rel} を読めない: {up.read_error}")
             continue
         if up.hash != short:
             err(c.line, f"上流の hash が合わない: {rel}（今は {up.hash}）。下流に影響を反映してから書き換える")
@@ -1248,7 +1248,7 @@ def check_upstream(doc, err):
 def listed_in_parent(doc, err):
     top = doc.spec_doc("design")
     if top is None:
-        err(1, f"親の設計書 {doc.spec_rel}/design.md が無い")
+        err(1, f"親の設計書が無い: {doc.spec_rel}/design.md")
         return None
     if top.read_error is not None:
         err(1, f"親の設計書 {doc.spec_rel}/design.md を読めない: {top.read_error}")
@@ -1263,7 +1263,7 @@ def check_coverage(doc, err):
     if doc.kind == "design" and doc.child is None:
         req = doc.spec_doc("requirements")
         if req is None:
-            err(1, f"{doc.spec_rel}/requirements.md が無い")
+            err(1, f"要件定義書が無い: {doc.spec_rel}/requirements.md")
             return
         covered = {r for reqs in doc.ac_reqs.values() for r in reqs}
         assigned = {r for reqs in (doc.split or {}).values() for r in reqs}
