@@ -60,6 +60,7 @@ MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/merm
 
 CHILD = r"[a-z][a-z0-9]*(?:-[a-z0-9]+)?"
 CHILD_RE = re.compile(rf"^{CHILD}$")
+SPEC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$")
 ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
 DEF_RE = re.compile(rf"^((?:R|AC|S|Q)-(?:{CHILD}-)?\d{{3}}):(?: (.*))?$")
 KV_RE = re.compile(r"^([^\s:]+):(?: (.*))?$")
@@ -654,8 +655,18 @@ class Doc:
         path = self.spec_dir / child / f"{kind}.md" if child else self.spec_dir / f"{kind}.md"
         return self.ws.load(path)
 
+    def can_refer(self, ident):
+        """番号を定義する文書が、この文書か上流の文書なら真。下流と別の子の番号は参照しない。"""
+        typ, child = split_id(ident)
+        if typ in ("R", "Q"):
+            return True
+        kind = "design" if typ == "AC" else "plan"
+        return STAGES.index(kind) <= STAGES.index(self.kind) and child in (None, self.child)
+
     def resolve(self, ident):
-        """番号を定義している文書を返す。無ければ None。"""
+        """番号を定義している文書を返す。無ければ None。下流と別の子の文書は開かない。"""
+        if not self.can_refer(ident):
+            return None
         typ, child = split_id(ident)
         if typ == "Q":
             target = self
@@ -701,6 +712,10 @@ class Doc:
             return
         if len(parts) not in (2, 3):
             self.local_errors.append((1, "specs/<id>-<slug>/ か、その下の子のディレクトリに置く"))
+            return
+        if not SPEC_DIR_RE.match(parts[0]):
+            # hash が出す `パス@hash` を上流の行として check が読めるようにする
+            self.local_errors.append((1, "specs/ の下のディレクトリ名は <id>-<slug> にし、英数字をハイフンでつなぐ"))
             return
         if len(parts) == 3:
             if self.kind == "requirements":
@@ -1199,7 +1214,9 @@ def check_doc(doc, gate=None, require_approved=False):
         errors.append((line, msg))
 
     for line, ident in doc.refs:
-        if doc.resolve(ident) is None:
+        if not doc.can_refer(ident):
+            err(line, f"下流か別の子の文書の番号は参照しない: {ident}")
+        elif doc.resolve(ident) is None:
             err(line, f"定義の無い番号: {ident}")
     check_coverage(doc, err)
     check_upstream(doc, err)
@@ -1313,8 +1330,9 @@ class Renderer:
             href = "./" + href
         label = rel
         if target.name in DOC_FILES:
-            href = href[:-3] + ".html"
             other = self.doc.ws.load(target)
+            if other is not None and other.root is not None:
+                href = href[:-3] + ".html"
             if other is not None and other.title_block is not None:
                 label = plain(other.title_block.inline)
         link = f'<a href="{esc(href)}">{esc(label)}</a>'

@@ -256,7 +256,7 @@ class CheckTest(unittest.TestCase):
         self.assertIn("見出しが無い: ## リリース日", messages)
         self.assertIn("型に無い見出し: ## 補足", messages)
 
-    def test_empty_section_must_say_nashi(self):
+    def test_empty_section_must_say_none(self):
         self.repo.replace(REQ, "## リリース日\n\nなし\n\n", "## リリース日\n\n")
         self.assertEqual(self.repo.messages(REQ), ["本文が空: ## リリース日。書く内容が無ければ「なし」と書く"])
 
@@ -309,6 +309,22 @@ class CheckTest(unittest.TestCase):
     def test_ids_in_code_are_not_references(self):
         self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="`R-009` は番号ではない"))
         self.assertEqual(self.repo.check(DESIGN), [])
+
+    def test_references_do_not_reach_downstream(self):
+        expected = ["下流か別の子の文書の番号は参照しない: AC-001", "下流か別の子の文書の番号は参照しない: S-001"]
+        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="AC-001 と S-001 は扱わない"))
+        self.assertEqual(self.repo.messages(REQ), expected)
+        self.repo.path(DESIGN).unlink()
+        self.repo.path(PLAN).unlink()
+        self.assertEqual(self.repo.messages(REQ), expected)
+        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="S-001 で確かめる"))
+        self.assertEqual(self.repo.messages(DESIGN), ["下流か別の子の文書の番号は参照しない: S-001"])
+
+    def test_spec_dir_name(self):
+        for rel in ("specs/invoice/requirements.md", "specs/12 invoice/requirements.md", "specs/12_invoice/requirements.md"):
+            with self.subTest(rel=rel):
+                self.repo.write(rel, self.repo.read(REQ))
+                self.assertEqual(self.repo.messages(rel), ["specs/ の下のディレクトリ名は <id>-<slug> にし、英数字をハイフンでつなぐ"])
 
     def test_requirement_without_ac(self):
         acs = "- AC-001: 選んだ請求書が 60 秒以内にすべて発行済みになる\n  - 要件: R-001、R-003"
@@ -583,6 +599,9 @@ class SplitTest(unittest.TestCase):
         self.assertEqual(self.repo.check(), [])
 
     def test_child_plan(self):
+        acs = "- AC-001: 既存の単票発行は変わらない\n  - 要件: なし"
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準=acs))
+        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
         self.repo.write(PLAN, build_doc("plan", meta(upstream=[self.repo.ref(DESIGN)]), {}))
         s = (
             "- S-billing-001: まとめて発行する\n  - 受け入れ基準: AC-billing-001\n  - 種別: 正常\n  - 層: 結合\n"
@@ -592,10 +611,34 @@ class SplitTest(unittest.TestCase):
         path = f"{SPEC}/billing/plan.md"
         self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True))
         self.assertEqual(self.repo.check(path), [])
-        self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s.replace("AC-billing-001", "AC-listing-001")}, True))
-        messages = self.repo.messages(path)
-        self.assertIn("受け入れ基準には同じディレクトリの設計書の AC を書く: AC-listing-001", messages)
-        self.assertIn("AC-billing-001 を受ける S が無い", messages)
+        cases = [
+            ("AC-listing-001", "下流か別の子の文書の番号は参照しない: AC-listing-001"),
+            ("AC-001", "受け入れ基準には同じディレクトリの設計書の AC を書く: AC-001"),
+        ]
+        for ac, expected in cases:
+            with self.subTest(ac=ac):
+                self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s.replace("AC-billing-001", ac)}, True))
+                messages = self.repo.messages(path)
+                self.assertIn(expected, messages)
+                self.assertIn("AC-billing-001 を受ける S が無い", messages)
+
+    def test_parent_plan_must_not_receive_child_ac(self):
+        s = PLAN_BODIES["シナリオ"].split("\n- S-002")[0].replace("AC-001", "AC-billing-001")
+        self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=s))
+        self.assertEqual(self.repo.messages(PLAN), ["下流か別の子の文書の番号は参照しない: AC-billing-001"])
+
+    def test_split_names_and_descriptions(self):
+        bad_name = "子は `- 子の名前: 説明` の形で書く。子の名前は英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
+        cases = [
+            (SPLIT + "\n- billing: 請求書の再発行\n  - 要件: なし\n  - 依存: なし", "子の名前が重なっている: billing"),
+            (SPLIT.replace("- listing:", "- mocks:"), bad_name),
+            (SPLIT.replace("- listing:", "- specs:"), bad_name),
+            (SPLIT.replace("- listing: 一覧の表示", "- listing:"), "説明が空: listing"),
+        ]
+        for split, expected in cases:
+            with self.subTest(expected=expected, split=split):
+                self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+                self.assertIn(expected, self.repo.messages(DESIGN))
 
     def test_unlisted_child_directory(self):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")
@@ -782,6 +825,14 @@ class HtmlTest(unittest.TestCase):
         self.assertIn('<a href="./javascript:alert(1)">', out)
         self.assertNotIn('href="javascript:', out)
 
+    def test_meta_path_to_a_misplaced_document_keeps_md(self):
+        rel = "docs/design.md"
+        self.repo.write(rel, self.repo.read(DESIGN))
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
+        out = self.meta_of(DESIGN)
+        self.assertIn('<a href="../../docs/design.md">', out)
+        self.assertNotIn("docs/design.html", out)
+
     def test_meta_path_with_backslash_is_not_linked(self):
         # 書式の誤りなので html は書き出さないが、Renderer の側でもリンクにしない
         for bad in (f"{SPEC}/\\\\evil.example.com/x@0123456789ab", f"{SPEC}/..\\..\\outside/design.md@0123456789ab"):
@@ -876,6 +927,15 @@ class CliTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
             self.run_main("check", "--gate", "実装", SPEC)
         self.assertEqual(cm.exception.code, 2)
+
+    def test_check_gate_and_approved_together(self):
+        self.repo.write_plan(with_body(PLAN_BODIES, 要確認=question("release")))
+        code, out = self.run_main("check", "--gate", "release", "--approved", PLAN)
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            sorted(line.split(": ", 1)[1] for line in out.splitlines()),
+            ["状態が approved でない", "解決する工程が release の要確認が残っている: Q-001"],
+        )
 
     def test_hash_errors(self):
         self.repo.write("README.md", "x\n")
