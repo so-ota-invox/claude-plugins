@@ -90,6 +90,10 @@ def with_body(bodies, **changes):
     return out
 
 
+def question(stage):
+    return f"- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15\n  - 解決する工程: {stage}"
+
+
 class Repo:
     """一時ディレクトリをリポジトリルートに見立てる。"""
 
@@ -334,11 +338,33 @@ class CheckTest(unittest.TestCase):
         self.assertIn("種別は 正常・異常・境界 のどれか", messages)
 
     def test_question_fields(self):
-        q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 止める工程: 出荷"
+        q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 解決する工程: 実装"
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 要確認=q))
         messages = self.repo.messages(REQ)
         self.assertIn("Q-001 の下に 期限 が無い", messages)
-        self.assertIn("止める工程は 承認・実装・リリース のどれか", messages)
+        self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
+
+    def write_question(self, rel, stage, state="draft"):
+        """rel の要確認に、解決する工程が stage の Q-001 を置く。"""
+        q = question(stage)
+        if rel == REQ:
+            self.repo.write_requirements(state, with_body(REQ_BODIES, 要確認=q))
+        elif rel == DESIGN:
+            self.repo.write_design(with_body(DESIGN_BODIES, 要確認=q), state)
+        else:
+            self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q), state)
+
+    def test_question_stage_must_not_precede_the_document(self):
+        cases = [
+            (DESIGN, "requirements", "design.md の解決する工程は design・plan・release のどれか"),
+            (PLAN, "requirements", "plan.md の解決する工程は plan・release のどれか"),
+            (PLAN, "design", "plan.md の解決する工程は plan・release のどれか"),
+        ]
+        for rel, stage, expected in cases:
+            with self.subTest(rel=rel, stage=stage):
+                self.repo.write_valid()
+                self.write_question(rel, stage)
+                self.assertEqual(self.repo.messages(rel), [expected])
 
     def test_upstream_hash_mismatch(self):
         self.repo.replace(REQ, "## 仮定\n\nなし", "## 仮定\n\n- 税込で計算する")
@@ -372,19 +398,35 @@ class CheckTest(unittest.TestCase):
         )
 
     def test_gate(self):
-        q = "- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15\n  - 止める工程: 実装"
-        self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q))
-        self.assertEqual(self.repo.check(PLAN), [])
-        self.assertEqual(self.repo.check(PLAN, gate="承認"), [])
-        self.assertEqual(self.repo.messages(PLAN, gate="実装"), ["止める工程が「実装」の要確認が残っている: Q-001"])
-        self.assertEqual(self.repo.messages(PLAN, gate="リリース"), ["止める工程が「実装」の要確認が残っている: Q-001"])
+        # ゲートは、解決する工程がそのゲートかそれより前の要確認で止まる
+        cases = [
+            (REQ, "requirements", ("requirements", "design", "plan", "release")),
+            (DESIGN, "design", ("design", "plan", "release")),
+            (PLAN, "plan", ("plan", "release")),
+            (PLAN, "release", ("release",)),
+        ]
+        for rel, stage, stopping in cases:
+            self.repo.write_valid()
+            self.write_question(rel, stage)
+            self.assertEqual(self.repo.check(rel), [])
+            for gate in specdoc.STAGES:
+                with self.subTest(stage=stage, gate=gate):
+                    expected = [f"解決する工程が {stage} の要確認が残っている: Q-001"] if gate in stopping else []
+                    self.assertEqual(self.repo.messages(rel, gate=gate), expected)
 
-    def test_approved_doc_with_question_blocking_approval(self):
-        q = "- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15\n  - 止める工程: 承認"
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 要確認=q))
-        self.assertEqual(
-            self.repo.messages(REQ), ["approved の文書に、止める工程が「承認」の要確認が残っている: Q-001"]
-        )
+    def test_approved_doc_keeps_only_questions_for_later_stages(self):
+        for rel, stage in ((REQ, "requirements"), (DESIGN, "design"), (PLAN, "plan")):
+            with self.subTest(rel=rel, stage=stage):
+                self.repo.write_valid()
+                self.write_question(rel, stage, "approved")
+                self.assertEqual(
+                    self.repo.messages(rel), [f"approved の文書に、解決する工程が {stage} の要確認が残っている: Q-001"]
+                )
+        for rel, stage in ((REQ, "design"), (DESIGN, "plan"), (PLAN, "release")):
+            with self.subTest(rel=rel, stage=stage):
+                self.repo.write_valid()
+                self.write_question(rel, stage, "approved")
+                self.assertEqual(self.repo.check(rel), [])
 
     def test_approved_flag(self):
         self.assertEqual(self.repo.messages(PLAN, approved=True), ["状態が approved でない"])
@@ -499,16 +541,12 @@ class CheckTest(unittest.TestCase):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
 
-    def test_gate_needs_downstream_documents(self):
+    def test_gate_does_not_look_downstream(self):
+        # どの文書が揃えば先へ進めるかは呼ぶ側が決める
         self.repo.path(PLAN).unlink()
-        self.assertEqual(self.repo.check(), [])
-        self.assertEqual(self.repo.check(gate="承認"), [])
-        for gate in ("実装", "リリース"):
+        for gate in specdoc.STAGES:
             with self.subTest(gate=gate):
-                self.assertEqual(self.repo.check(gate=gate), [(DESIGN, 1, f"下流の文書が無い: {PLAN}")])
-        self.repo.path(DESIGN).unlink()
-        self.assertEqual(self.repo.check(gate="実装"), [])
-        self.assertEqual(self.repo.check(gate="リリース"), [(REQ, 1, f"下流の文書が無い: {DESIGN}")])
+                self.assertEqual(self.repo.check(gate=gate), [])
 
     @unittest.skipUnless(hasattr(os, "geteuid") and os.geteuid() != 0, "権限で読めなくできる環境だけで確かめる")
     def test_unreadable_file(self):
@@ -561,13 +599,9 @@ class SplitTest(unittest.TestCase):
 
     def test_unlisted_child_directory(self):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")
-        self.assertEqual(
-            self.repo.check(DESIGN), [(DESIGN, self.split_line(), "「サブ機能分割」に無い子のディレクトリがある: refund/")]
-        )
+        # 親は子のディレクトリを見ない。子の check が親の「サブ機能分割」と照合する
+        self.assertEqual(self.repo.check(DESIGN), [])
         self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に refund が無い"])
-
-    def split_line(self):
-        return self.repo.read(DESIGN).split("\n").index("## サブ機能分割") + 1
 
     def test_dependency_must_come_first(self):
         split = SPLIT.replace("依存: billing", "依存: refund")
@@ -615,22 +649,11 @@ class SplitTest(unittest.TestCase):
         self.assertIn('<a href="../requirements.html#R-001">R-001</a>', out)
         self.assertIn('<dt>親</dt>\n<dd><a href="../design.html">基本設計: 請求書の一括発行</a></dd>', out)
 
-    def test_release_gate_needs_listed_children(self):
+    def test_gate_does_not_look_for_children(self):
         self.repo.path(self.child_path("billing")).unlink()
-        lines = self.repo.read(DESIGN).split("\n")
-        billing = lines.index("- billing: 請求書の発行") + 1
-        listing = lines.index("- listing: 一覧の表示") + 1
-        self.assertEqual(self.repo.check(DESIGN), [])
-        self.assertEqual(self.repo.check(DESIGN, gate="実装"), [(DESIGN, 1, f"下流の文書が無い: {PLAN}")])
-        self.assertEqual(
-            self.repo.check(DESIGN, gate="リリース"),
-            [
-                (DESIGN, billing, f"下流の文書が無い: {SPEC}/billing/design.md"),
-                (DESIGN, billing, f"下流の文書が無い: {SPEC}/billing/plan.md"),
-                (DESIGN, listing, f"下流の文書が無い: {SPEC}/listing/plan.md"),
-                (DESIGN, 1, f"下流の文書が無い: {PLAN}"),
-            ],
-        )
+        for gate in specdoc.STAGES:
+            with self.subTest(gate=gate):
+                self.assertEqual(self.repo.check(DESIGN, gate=gate), [])
 
 
 class HtmlTest(unittest.TestCase):
@@ -847,10 +870,12 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out.split("\n")[:3], [f"{SPEC}/design.html", f"{SPEC}/plan.html", f"{SPEC}/requirements.html"])
 
-    def test_check_ok_names_missing_downstream(self):
+    def test_check_gate_takes_english_stage_names(self):
         self.repo.path(PLAN).unlink()
-        self.assertEqual(self.run_main("check", SPEC), (0, f"ok: 2 件（下流が無く照合していない: {PLAN}）\n"))
-        self.assertEqual(self.run_main("check", "--gate", "実装", SPEC), (1, f"{DESIGN}:1: 下流の文書が無い: {PLAN}\n"))
+        self.assertEqual(self.run_main("check", "--gate", "release", SPEC), (0, "ok: 2 件\n"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            self.run_main("check", "--gate", "実装", SPEC)
+        self.assertEqual(cm.exception.code, 2)
 
     def test_hash_errors(self):
         self.repo.write("README.md", "x\n")

@@ -2,7 +2,7 @@
 """要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
 
 使い方:
-  python3 specdoc.py check [--gate 承認|実装|リリース] [--approved] <ファイルまたはディレクトリ>...
+  python3 specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイルまたはディレクトリ>...
   python3 specdoc.py html <ファイルまたはディレクトリ>...
   python3 specdoc.py hash <ファイル>
 
@@ -27,7 +27,7 @@ LEGEND = (
 )
 META_KEYS = ("著者", "状態", "承認者", "凡例", "親", "上流", "元の文書")
 STATES = ("draft", "approved")
-STAGES = ("承認", "実装", "リリース")
+STAGES = ("requirements", "design", "plan", "release")
 SCENARIO_KINDS = ("正常", "異常", "境界")
 DIFF_KINDS = ("既存", "追加", "変更", "削除")
 TABLE_HEADER = ("意味", "型・長さ", "必須", "制約", "差分")
@@ -48,7 +48,7 @@ ID_FIELDS = {
     "R": {},
     "AC": {"要件": True},
     "S": {"受け入れ基準": True, "種別": True, "層": True, "前提": True, "操作": True, "期待": True},
-    "Q": {"推奨": False, "確認先": True, "期限": True, "止める工程": True},
+    "Q": {"推奨": False, "確認先": True, "期限": True, "解決する工程": True},
 }
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
@@ -610,7 +610,7 @@ class Doc:
         self.anchors = {}  # id(Item) -> 番号
         self.ac_reqs = {}  # AC -> [R]
         self.s_acs = {}  # S -> (行, [AC])
-        self.q_stage = {}  # Q -> (行, 止める工程)
+        self.q_stage = {}  # Q -> (行, 解決する工程)
         self.refs = []  # [(行, 番号)]
         self.split = None  # 子の名前 -> {"line", "reqs", "deps"}
         self.tables = None  # テーブル名 -> カラム名の集合
@@ -913,12 +913,16 @@ class Doc:
             if kind and kind[1] and kind[1] not in SCENARIO_KINDS:
                 err(kind[0].line, f"種別は {'・'.join(SCENARIO_KINDS)} のどれか")
         elif typ == "Q":
-            stage = fields.get("止める工程")
+            stage = fields.get("解決する工程")
             if stage and stage[1]:
-                if stage[1] in STAGES:
+                allowed = STAGES[STAGES.index(self.kind):]
+                if stage[1] in allowed:
                     self.q_stage[ident] = (item.line, stage[1])
+                elif stage[1] in STAGES:
+                    # 済んだ工程に関わる問いは、上流の文書の要確認にする
+                    err(stage[0].line, f"{self.kind}.md の解決する工程は {'・'.join(allowed)} のどれか")
                 else:
-                    err(stage[0].line, f"止める工程は {'・'.join(STAGES)} のどれか")
+                    err(stage[0].line, f"解決する工程は {'・'.join(STAGES)} のどれか")
 
     def collect_refs(self):
         for line, tokens, item, blk in self.inlines():
@@ -1125,16 +1129,6 @@ def listed_in_parent(doc, err):
 
 def check_coverage(doc, err):
     if doc.kind == "design" and doc.child is None:
-        at = doc.heading_line(SPLIT_SECTION)
-        for p in sorted(doc.spec_dir.iterdir()):
-            if (
-                p.is_dir()
-                and p.name != "mocks"
-                and not p.name.startswith(".")
-                and ((p / "design.md").is_file() or (p / "plan.md").is_file())
-                and p.name not in (doc.split or {})
-            ):
-                err(at, f"「サブ機能分割」に無い子のディレクトリがある: {p.name}/")
         req = doc.spec_doc("requirements")
         if req is None:
             err(1, f"{doc.spec_rel}/requirements.md が無い")
@@ -1185,31 +1179,12 @@ def check_data_use(doc, err):
 def check_gate(doc, gate, require_approved, err):
     for q, (line, stage) in doc.q_stage.items():
         if gate and STAGES.index(stage) <= STAGES.index(gate):
-            err(line, f"止める工程が「{stage}」の要確認が残っている: {q}")
-        elif doc.state == "approved" and stage == "承認":
-            err(line, f"approved の文書に、止める工程が「承認」の要確認が残っている: {q}")
+            err(line, f"解決する工程が {stage} の要確認が残っている: {q}")
+        elif doc.state == "approved" and stage == doc.kind:
+            err(line, f"approved の文書に、解決する工程が {stage} の要確認が残っている: {q}")
     if require_approved and doc.state != "approved":
         entry = doc.meta.get("状態")
         err(entry[0].line if entry else 1, "状態が approved でない")
-
-
-def missing_downstream(doc):
-    """まだ無い下流の文書を (行, パス, それが無いと止める工程) の列で返す。"""
-    s = doc.spec_rel
-    out = []
-    if doc.kind == "requirements":
-        if doc.spec_doc("design") is None:
-            out.append((1, f"{s}/design.md", "リリース"))
-    elif doc.kind == "design":
-        if doc.child is None:
-            for name, c in (doc.split or {}).items():
-                for kind in ("design", "plan"):
-                    if doc.spec_doc(kind, name) is None:
-                        out.append((c["line"], f"{s}/{name}/{kind}.md", "リリース"))
-        if doc.spec_doc("plan", doc.child) is None:
-            here = f"{s}/{doc.child}" if doc.child else s
-            out.append((1, f"{here}/plan.md", "実装"))
-    return out
 
 
 def check_doc(doc, gate=None, require_approved=False):
@@ -1231,9 +1206,6 @@ def check_doc(doc, gate=None, require_approved=False):
     if doc.kind == "design":
         check_data_use(doc, err)
     check_gate(doc, gate, require_approved, err)
-    for line, rel, stage in missing_downstream(doc):
-        if gate and STAGES.index(stage) <= STAGES.index(gate):
-            err(line, f"下流の文書が無い: {rel}")
     return errors
 
 
@@ -1445,19 +1417,12 @@ def expand(args):
     return unique, errors
 
 
-def run_check(args, gate=None, require_approved=False, unchecked=None):
-    """unchecked には、この工程では止めないが、無いので照合していない下流の文書を集める。"""
+def run_check(args, gate=None, require_approved=False):
     ws = Workspace()
     files, errors = expand(args)
     for path in files:
         doc = ws.load(path)
         errors.extend((path, line, msg) for line, msg in check_doc(doc, gate, require_approved))
-        if unchecked is None or doc.root is None or doc.syntax_errors:
-            continue
-        for _, rel, stage in missing_downstream(doc):
-            stops = gate and STAGES.index(stage) <= STAGES.index(gate)
-            if not stops and rel not in unchecked:
-                unchecked.append(rel)
     return files, errors
 
 
@@ -1530,7 +1495,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command")
     sub.required = True
     p = sub.add_parser("check", help="型と照合する")
-    p.add_argument("--gate", choices=STAGES, help="この工程かそれより前の工程で止める要確認が残っていればエラーにする")
+    p.add_argument("--gate", choices=STAGES, help="解決する工程がこの工程かそれより前の要確認が残っていればエラーにする")
     p.add_argument("--approved", action="store_true", help="状態が approved でなければエラーにする")
     p.add_argument("paths", nargs="+", metavar="PATH")
     p = sub.add_parser("html", help="Markdown の隣に HTML を書き出す")
@@ -1540,14 +1505,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "check":
-        unchecked = []
-        files, errors = run_check(args.paths, args.gate, args.approved, unchecked)
+        files, errors = run_check(args.paths, args.gate, args.approved)
         for line in format_errors(errors):
             print(line)
         if errors:
             return 1
-        note = f"（下流が無く照合していない: {'、'.join(unchecked)}）" if unchecked else ""
-        print(f"ok: {len(files)} 件{note}")
+        print(f"ok: {len(files)} 件")
         return 0
     if args.command == "html":
         notes = []
