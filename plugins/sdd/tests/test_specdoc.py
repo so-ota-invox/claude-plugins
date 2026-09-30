@@ -754,17 +754,31 @@ class SplitTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(PLAN), ["下流か別の子の文書の番号は参照しない: AC-billing-001"])
 
     def test_split_names_and_descriptions(self):
-        bad_name = "子は `- 子の名前: 説明` の形で書く。子の名前は英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
+        bad_name = "子は `- 子の名前: 説明` の形で書く。子の名前はどの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
         cases = [
             (SPLIT + "\n- billing: 請求書の再発行\n  - 要件: なし\n  - 依存: なし", "子の名前が重なっている: billing"),
             (SPLIT.replace("- listing:", "- mocks:"), bad_name),
             (SPLIT.replace("- listing:", "- specs:"), bad_name),
+            # 2 語目が数字で始まると、AC-phase-100 が子 phase の AC-100 とも読めてしまう
+            (SPLIT.replace("- listing:", "- phase-2:"), bad_name),
             (SPLIT.replace("- listing: 一覧の表示", "- listing:"), "説明が空: listing"),
         ]
         for split, expected in cases:
             with self.subTest(expected=expected, split=split):
                 self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
                 self.assertIn(expected, self.repo.messages(DESIGN))
+
+    def test_child_name_may_end_with_digits(self):
+        split = SPLIT.replace("- listing:", "- phase2:")
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.assertEqual(self.repo.messages(DESIGN), [])
+
+    def test_child_directory_name(self):
+        bad_dir = "子のディレクトリ名は、どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）にする"
+        for name in ("phase-2", "mocks"):
+            with self.subTest(name=name):
+                self.write_child(name, f"- AC-{name}-001: 発行できる\n  - 要件: R-001")
+                self.assertEqual(self.repo.messages(self.child_path(name)), [bad_dir])
 
     def test_unlisted_child_directory(self):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")

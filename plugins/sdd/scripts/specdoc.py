@@ -72,9 +72,10 @@ HASH_LEN = 12
 # 見つからないとみなす errno。ほかの OSError は「調べられない」として知らせる
 MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
 
-CHILD = r"[a-z][a-z0-9]*(?:-[a-z0-9]+)?"
+# どの語も英小文字で始めるので、番号の中で数字だけの部分は最後の 3 桁だけになり、子の名前との境目が 1 通りに決まる
+CHILD = r"[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)?"
 CHILD_RE = re.compile(rf"^{CHILD}$")
-CHILD_RULE = "英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
+CHILD_RULE = "どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
 # <id> と <slug> の境目は機械では分からないので、最後の語が <slug> の規則に合うかだけを見る
 SPEC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-[a-z0-9]+$")
 ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
