@@ -1046,6 +1046,22 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual([(p.name, line) for p, line, _ in errors], [("plan.md", 1)])
         self.assertTrue(errors[0][2].startswith("plan.html を書けない: "), errors)
 
+    def test_half_written_html_is_removed(self):
+        self.render(REQ)
+        path = self.repo.path(REQ)
+
+        def write_half(out, data):
+            with open(out, "wb") as f:
+                f.write(data[: len(data) // 2])
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        notes = []
+        with mock.patch.object(Path, "write_bytes", write_half):
+            written, errors = specdoc.run_html([str(path)], notes)
+        self.assertEqual((written, errors), ([], [(path, 1, "requirements.html を書けない: No space left on device")]))
+        self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
+        self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
+
 
 class CliTest(unittest.TestCase):
     def setUp(self):

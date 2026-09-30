@@ -1551,6 +1551,19 @@ def run_check(args, gate=None, require_approved=False):
     return files, errors
 
 
+def remove_stale_html(path, out, errors, notes):
+    """書き出せなかった文書の前の HTML（書きかけを含む）を消し、Markdown と食い違う HTML を残さない。"""
+    try:
+        stale = exact_kind(str(out.parent), [out.name]) == "file"
+        if stale:
+            out.unlink()
+    except OSError as e:
+        errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}"))
+    else:
+        if stale:
+            notes.append((path, 1, f"古い {out.name} を消した"))
+
+
 def run_html(args, notes=None):
     """notes には、終了コードに関わらない知らせ（警告・消した HTML）を集める。"""
     notes = [] if notes is None else notes
@@ -1564,21 +1577,14 @@ def run_html(args, notes=None):
         if problems:
             errors.extend((path, line, msg) for line, msg in problems)
             if doc.root is not None:
-                try:
-                    stale = exact_kind(str(out.parent), [out.name]) == "file"
-                    if stale:
-                        out.unlink()
-                except OSError as e:
-                    errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}"))
-                else:
-                    if stale:
-                        notes.append((path, 1, f"古い {out.name} を消した"))
+                remove_stale_html(path, out, errors, notes)
             continue
         doc.check_links(lambda line, msg: notes.append((path, line, f"警告: {msg}")))
         try:
             out.write_bytes(Renderer(doc).render().encode("utf-8"))
         except OSError as e:
             errors.append((path, 1, f"{out.name} を書けない: {e.strerror or e}"))
+            remove_stale_html(path, out, errors, notes)
             continue
         written.append(out)
     return written, errors
