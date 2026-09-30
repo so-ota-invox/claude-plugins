@@ -119,6 +119,7 @@ class Repo:
     def __init__(self, test):
         tmp = tempfile.TemporaryDirectory()
         test.addCleanup(tmp.cleanup)
+        self.test = test
         self.root = Path(tmp.name)
 
     def path(self, rel):
@@ -136,7 +137,7 @@ class Repo:
     def replace(self, rel, old, new):
         text = self.read(rel)
         if old not in text:
-            raise AssertionError(f"{old!r} が {rel} に無い")
+            self.test.fail(f"{old!r} が {rel} に無い")
         self.write(rel, text.replace(old, new, 1))
 
     def ref(self, rel):
@@ -381,6 +382,12 @@ class CheckTest(unittest.TestCase):
         self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="S-001 で確かめる"))
         self.assertEqual(self.repo.messages(DESIGN), ["下流か別の子の文書の番号は参照しない: S-001"])
 
+    def test_questions_are_not_referenced_from_downstream(self):
+        # Q は文書ごとに 001 から数えるので、上流の文書にだけある Q-001 は参照できない
+        self.write_question(REQ, "design", "approved")
+        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- Q-001 の回答で締め日を決める"))
+        self.assertEqual(self.repo.messages(DESIGN), ["定義の無い番号: Q-001"])
+
     def test_spec_dir_name(self):
         expected = "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）"
         bad = (
@@ -524,7 +531,9 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(typed), [expected])
 
     def test_path_that_cannot_be_examined(self):
-        # 置き場を 1 段ずつ照らせないときは、トレースバックにせず 1 行のエラーにする
+        # 置き場を 1 段ずつ照らせないときは、トレースバックにせず 1 行のエラーにする。
+        # 実際には、途中のディレクトリに実行の権限だけがあり、中のファイルは開けるが一覧を読めないときに起こる。
+        # root は権限に関わらず一覧を読めるので、権限を外す代わりに例外を差し替え、root で実行しても確かめる
         with mock.patch.object(specdoc, "exact_kind", side_effect=PermissionError(errno.EACCES, "Permission denied")):
             self.assertEqual(self.repo.messages(REQ), ["パスを調べられない: Permission denied"])
 
@@ -882,6 +891,10 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(errors, [])
         return written[0].read_bytes().decode("utf-8")
 
+    def render_directly(self, rel):
+        """run_html が書き出さない書式の誤りのある文書でも、Renderer が作る HTML を返す。"""
+        return specdoc.Renderer(specdoc.Workspace().load(self.repo.path(rel))).render()
+
     def test_output_is_deterministic(self):
         first = self.render(DESIGN)
         self.assertEqual(self.render(DESIGN), first)
@@ -948,20 +961,20 @@ class HtmlTest(unittest.TestCase):
         for dest in denied:
             with self.subTest(dest=dest):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
-                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(REQ))).render()
+                out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn(f'href="{specdoc.esc(dest)}"', out)
         for dest in ("https://example.com", "http://example.com", "mailto:a@example.com", "#R-001"):
             with self.subTest(dest=dest):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [可]({dest})"))
-                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(REQ))).render()
+                out = self.render_directly(REQ)
                 self.assertIn(f'<a href="{specdoc.esc(dest)}">可</a>', out)
 
     def test_renderer_does_not_link_backslash_destinations(self):
         for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x"):
             with self.subTest(dest=dest):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
-                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(REQ))).render()
+                out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn("evil.example.com", out)
 
@@ -1012,7 +1025,7 @@ class HtmlTest(unittest.TestCase):
         for bad in (f"{SPEC}/\\\\evil.example.com/x@0123456789ab", f"{SPEC}/..\\..\\outside/design.md@0123456789ab"):
             with self.subTest(bad=bad):
                 self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), bad]), DESIGN_BODIES))
-                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(DESIGN))).render()
+                out = self.render_directly(DESIGN)
                 self.assertIn(f"<li>{specdoc.esc(bad)}</li>", out)
 
     def test_only_typed_documents_become_html(self):
