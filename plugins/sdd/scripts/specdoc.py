@@ -2,9 +2,9 @@
 """要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
 
 使い方:
-  specdoc.py check [--gate 承認|実装|リリース] [--approved] <ファイルまたはディレクトリ>...
-  specdoc.py html <ファイルまたはディレクトリ>...
-  specdoc.py hash <ファイル>
+  python3 specdoc.py check [--gate 承認|実装|リリース] [--approved] <ファイルまたはディレクトリ>...
+  python3 specdoc.py html <ファイルまたはディレクトリ>...
+  python3 specdoc.py hash <ファイル>
 
 型は plugin の formats/ に置く。Python 3.9 以上の標準ライブラリだけで動く。
 """
@@ -210,6 +210,8 @@ def link_dest_error(dest):
     """リンク先の書式の誤りを返す。無ければ None。相対パスの先が実在するかは check で見る。"""
     if CONTROL_RE.search(dest):
         return "リンク先に制御文字を入れない"
+    if "\\" in dest:
+        return "リンク先にバックスラッシュを入れない（区切りは / にする）"
     if dest.startswith("#") or WEB_RE.match(dest):
         return None
     if SCHEME_RE.match(dest):
@@ -1331,7 +1333,7 @@ class Renderer:
 
     def doc_link(self, rel, code):
         """上流や親へのリンク。表示名は相手の文書の見出しから取る。"""
-        if rel.startswith("/") or any(p in ("", ".", "..") for p in rel.split("/")):
+        if rel.startswith("/") or "\\" in rel or any(p in ("", ".", "..") for p in rel.split("/")):
             return esc(code or rel)
         target = self.doc.root.joinpath(*rel.split("/"))
         href = self.href_to(target)

@@ -492,6 +492,13 @@ class CheckTest(unittest.TestCase):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), [expected])
 
+    def test_link_destination_without_backslash(self):
+        # ブラウザは http・https・file の URL でバックスラッシュを / と読むので、\\host は //host と同じになる
+        for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x", "a\\b.md", "https://example.com\\x"):
+            with self.subTest(dest=dest):
+                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
+
     def test_gate_needs_downstream_documents(self):
         self.repo.path(PLAN).unlink()
         self.assertEqual(self.repo.check(), [])
@@ -709,6 +716,14 @@ class HtmlTest(unittest.TestCase):
                 out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(REQ))).render()
                 self.assertIn(f'<a href="{specdoc.esc(dest)}">可</a>', out)
 
+    def test_renderer_does_not_link_backslash_destinations(self):
+        for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x"):
+            with self.subTest(dest=dest):
+                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
+                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(REQ))).render()
+                self.assertIn("<li>例: 危ない</li>", out)
+                self.assertNotIn("evil.example.com", out)
+
     def test_output_despite_other_check_errors(self):
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- R-099 を参照"))
         self.assertEqual(self.repo.messages(REQ), ["定義の無い番号: R-099"])
@@ -743,6 +758,14 @@ class HtmlTest(unittest.TestCase):
         out = self.meta_of(DESIGN)
         self.assertIn('<a href="./javascript:alert(1)">', out)
         self.assertNotIn('href="javascript:', out)
+
+    def test_meta_path_with_backslash_is_not_linked(self):
+        # 書式の誤りなので html は書き出さないが、Renderer の側でもリンクにしない
+        for bad in (f"{SPEC}/\\\\evil.example.com/x@0123456789ab", f"{SPEC}/..\\..\\outside/design.md@0123456789ab"):
+            with self.subTest(bad=bad):
+                self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), bad]), DESIGN_BODIES))
+                out = specdoc.Renderer(specdoc.Workspace().load(self.repo.path(DESIGN))).render()
+                self.assertIn(f"<li>{specdoc.esc(bad)}</li>", out)
 
     def test_only_typed_documents_become_html(self):
         self.repo.write("docs/design.md", "x\n")
