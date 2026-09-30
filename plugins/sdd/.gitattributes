@@ -1,0 +1,2 @@
+# specdoc.py は型（formats/）を LF の前提で読むので、core.autocrlf の設定にかかわらず LF で取り出す
+* text=auto eol=lf

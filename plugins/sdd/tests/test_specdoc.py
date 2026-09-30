@@ -5,12 +5,14 @@ import io
 import os
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-import specdoc  # noqa: E402
+import specdoc
 
 SPEC = "specs/12-invoice"
 REQ = f"{SPEC}/requirements.md"
@@ -94,6 +96,21 @@ def question(stage):
     return f"- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15\n  - 解決する工程: {stage}"
 
 
+def lock(test, path):
+    """path の権限をすべて外す。外しても読める環境（root、WSL の /mnt/c など）では、確かめようがないのでテストを飛ばす。"""
+    mode = path.stat().st_mode
+    path.chmod(0)
+    test.addCleanup(path.chmod, mode)
+    try:
+        if path.is_dir():
+            os.listdir(path)
+        else:
+            path.read_bytes()
+    except PermissionError:
+        return
+    test.skipTest(f"権限を外しても {path.name} を読める環境")
+
+
 class Repo:
     """一時ディレクトリをリポジトリルートに見立てる。"""
 
@@ -121,7 +138,7 @@ class Repo:
         self.write(rel, text.replace(old, new, 1))
 
     def ref(self, rel):
-        return f"{rel}@{specdoc.blob_hash(self.path(rel).read_bytes())[:12]}"
+        return f"{rel}@{specdoc.blob_hash(self.path(rel).read_bytes())[:specdoc.HASH_LEN]}"
 
     def check(self, *rels, gate=None, approved=False):
         paths = [str(self.path(r)) for r in rels or (SPEC,)]
@@ -131,7 +148,7 @@ class Repo:
     def messages(self, *rels, **kwargs):
         return [msg for _, _, msg in self.check(*rels, **kwargs)]
 
-    def write_requirements(self, state="approved", bodies=REQ_BODIES):
+    def write_requirements(self, bodies=REQ_BODIES, state="approved"):
         self.write(REQ, build_doc("requirements", meta(state), bodies))
 
     def write_design(self, bodies=DESIGN_BODIES, state="approved"):
@@ -179,6 +196,16 @@ class TemplateTest(unittest.TestCase):
     def test_blob_hash_matches_git(self):
         self.assertEqual(specdoc.blob_hash(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
         self.assertEqual(specdoc.blob_hash(b"hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a")
+
+    def test_blob_hash_ignores_crlf_checkout(self):
+        self.assertEqual(specdoc.blob_hash(b"a\r\nb\r\n"), specdoc.blob_hash(b"a\nb\n"))
+
+    def test_repo_relative_path_form(self):
+        # 上流の照合（check）とリンクの書き出し（html）が同じ判定を使う
+        for rel in ("/specs/x.md", "specs//x.md", "specs/./x.md", "specs/../x.md", "specs\\x.md", "specs/x/", ""):
+            with self.subTest(rel=rel):
+                self.assertTrue(specdoc.bad_repo_path(rel))
+        self.assertFalse(specdoc.bad_repo_path(REQ))
 
     def test_mermaid_integrity_is_sha384(self):
         self.assertRegex(specdoc.MERMAID_INTEGRITY, r"^sha384-[A-Za-z0-9+/]{64}$")
@@ -245,6 +272,20 @@ class CheckTest(unittest.TestCase):
         self.repo.write(REQ, "\ufeff" + text)
         self.assertEqual(self.repo.messages(REQ), ["BOM を付けない"])
 
+    def test_lone_cr_is_reported_on_its_own_line(self):
+        cr = "改行は LF にする（CR だけで改行しない）"
+        self.repo.replace(REQ, "## 仮定\n\nなし", "## 仮定\n\nなし\rなし")
+        lines = self.repo.read(REQ).split("\n")
+        at = lines.index("なし\rなし") + 1
+        self.assertEqual(self.repo.check(REQ), [(REQ, at, cr)])
+        # CR より後ろの行の番号も、エディタで数える行と合う
+        self.repo.replace(REQ, "## 要確認\n\nなし", "## 要確認\n\n* x")
+        lines = self.repo.read(REQ).split("\n")
+        self.assertEqual(
+            sorted(self.repo.check(REQ)),
+            sorted([(REQ, at, cr), (REQ, lines.index("* x") + 1, "箇条書きは - で書く")]),
+        )
+
     def test_title_needs_subject(self):
         self.repo.replace(REQ, "# 要件定義書: 請求書の一括発行", "# 要件定義書")
         self.assertEqual(self.repo.check(REQ), [(REQ, 1, "1 行目は `# 要件定義書: 件名` の形で書く")])
@@ -266,11 +307,11 @@ class CheckTest(unittest.TestCase):
 
     def test_meta_rules(self):
         cases = [
-            ("- 著者: 山田\n- 状態: approved", "- 状態: approved\n- 著者: 山田", "管理情報の順序が違う（著者、状態、承認者、凡例、親、上流、元の文書 の順）"),
+            ("- 著者: 山田\n- 状態: approved", "- 状態: approved\n- 著者: 山田", "管理情報の順序が違う（著者・状態・承認者・凡例・親・上流・元の文書 の順）"),
             ("- 承認者: 佐藤\n", "", "approved のときは承認者を書く"),
             ("- 状態: approved", "- 状態: wip", "状態は draft か approved にする"),
             ("（例: AC-billing-001）", "", "凡例の文言が違う。common.md の文言をそのまま書く"),
-            ("- 承認者: 佐藤\n", "- 承認者: 佐藤\n- 担当: 鈴木\n", "管理情報に使えない項目: 担当（使えるのは 著者、状態、承認者、凡例、親、上流、元の文書）"),
+            ("- 承認者: 佐藤\n", "- 承認者: 佐藤\n- 担当: 鈴木\n", "管理情報に使えない項目: 担当（使えるのは 著者・状態・承認者・凡例・親・上流・元の文書）"),
             ("- 著者: 山田\n", "", "管理情報に 著者 が無い"),
             ("- 凡例:", "- 親: specs/12-invoice/requirements.md\n- 凡例:", "親は子の文書だけに書く"),
         ]
@@ -321,10 +362,22 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(DESIGN), ["下流か別の子の文書の番号は参照しない: S-001"])
 
     def test_spec_dir_name(self):
-        for rel in ("specs/invoice/requirements.md", "specs/12 invoice/requirements.md", "specs/12_invoice/requirements.md"):
+        expected = "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）"
+        bad = (
+            "specs/invoice/requirements.md",
+            "specs/12 invoice/requirements.md",
+            "specs/12_invoice/requirements.md",
+            "specs/12-Invoice/requirements.md",
+        )
+        text = self.repo.read(REQ)
+        for rel in bad:
             with self.subTest(rel=rel):
-                self.repo.write(rel, self.repo.read(REQ))
-                self.assertEqual(self.repo.messages(rel), ["specs/ の下のディレクトリ名は <id>-<slug> にし、英数字をハイフンでつなぐ"])
+                self.repo.write(rel, text)
+                self.assertEqual(self.repo.messages(rel), [expected])
+        # チケット番号の <id> は大文字を含んでよい
+        rel = "specs/PROJ-12-invoice/requirements.md"
+        self.repo.write(rel, text)
+        self.assertEqual(self.repo.messages(rel), [])
 
     def test_requirement_without_ac(self):
         acs = "- AC-001: 選んだ請求書が 60 秒以内にすべて発行済みになる\n  - 要件: R-001、R-003"
@@ -364,7 +417,7 @@ class CheckTest(unittest.TestCase):
         """rel の要確認に、解決する工程が stage の Q-001 を置く。"""
         q = question(stage)
         if rel == REQ:
-            self.repo.write_requirements(state, with_body(REQ_BODIES, 要確認=q))
+            self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q), state)
         elif rel == DESIGN:
             self.repo.write_design(with_body(DESIGN_BODIES, 要確認=q), state)
         else:
@@ -384,7 +437,7 @@ class CheckTest(unittest.TestCase):
 
     def test_upstream_hash_mismatch(self):
         self.repo.replace(REQ, "## 仮定\n\nなし", "## 仮定\n\n- 税込で計算する")
-        current = specdoc.blob_hash(self.repo.path(REQ).read_bytes())[:12]
+        current = specdoc.blob_hash(self.repo.path(REQ).read_bytes())[:specdoc.HASH_LEN]
         self.assertEqual(
             self.repo.messages(DESIGN),
             [f"上流の hash が合わない: {REQ}（今は {current}）。下流に影響を反映してから書き換える"],
@@ -412,6 +465,57 @@ class CheckTest(unittest.TestCase):
                 f"上流が重なっている: {REQ}",
             ],
         )
+
+    def test_upstream_hash_ignores_crlf_checkout(self):
+        # Windows の git が CRLF で取り出しても、上流の hash は合う
+        self.repo.write(REQ, self.repo.read(REQ).replace("\n", "\r\n"))
+        self.assertEqual(self.repo.check(DESIGN), [])
+
+    def test_upstream_path_must_be_nfc(self):
+        rel = f"{SPEC}/資料/ガイド.md"
+        self.repo.write(rel, "x\n")
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
+        self.assertEqual(self.repo.check(DESIGN), [])
+        nfd = unicodedata.normalize("NFD", rel)
+        ups = [self.repo.ref(REQ), self.repo.ref(rel).replace(rel, nfd)]
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups), DESIGN_BODIES))
+        self.assertEqual(self.repo.messages(DESIGN), [f"上流のパスの文字を NFC にする（hash の出力をそのまま書く）: {nfd}"])
+
+    def test_link_must_be_nfc(self):
+        self.repo.write(f"{SPEC}/mocks/ガイド.html", "<!DOCTYPE html>\n")
+        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- [ガイド](mocks/ガイド.html)"))
+        self.assertEqual(self.repo.check(DESIGN), [])
+        nfd = unicodedata.normalize("NFD", "mocks/ガイド.html")
+        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=f"- [ガイド]({nfd})"))
+        self.assertEqual(self.repo.messages(DESIGN), [f"リンク先の文字を NFC にする: {nfd}"])
+
+    def test_names_must_match_case(self):
+        # 大文字・小文字を区別しない macOS でも、区別する Linux と同じく見つからない
+        wrong = f"{SPEC}/Requirements.md"
+        ups = [self.repo.ref(REQ), self.repo.ref(REQ).replace(REQ, wrong)]
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups), DESIGN_BODIES))
+        self.assertEqual(self.repo.messages(DESIGN), [f"上流のファイルが無い: {wrong}"])
+        for dest in ("mocks/List.html", "Mocks/list.html"):
+            with self.subTest(dest=dest):
+                self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=f"- 一覧画面: [モック]({dest})"))
+                self.assertEqual(self.repo.messages(DESIGN), [f"リンク先が無い: {dest}"])
+
+    def test_document_path_case_must_match(self):
+        self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
+        typed = "specs/proj-12-invoice/requirements.md"
+        if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
+            expected = "パスの大文字・小文字が実際の名前と違う"
+        else:
+            expected = "ファイルもディレクトリも無い"
+        self.assertEqual(self.repo.messages(typed), [expected])
+
+    def test_too_long_names_are_missing(self):
+        # Python 3.12 までの Path.exists は ENAMETOOLONG で例外を送る
+        name = "a" * 300 + ".md"
+        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
+        self.assertEqual(self.repo.messages(REQ), [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"])
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), f"{SPEC}/{name}@0123456789ab"]), DESIGN_BODIES))
+        self.assertEqual(self.repo.messages(DESIGN), [f"上流のファイルが無い: {SPEC}/{name}"])
 
     def test_gate(self):
         # ゲートは、解決する工程がそのゲートかそれより前の要確認で止まる
@@ -564,16 +668,50 @@ class CheckTest(unittest.TestCase):
             with self.subTest(gate=gate):
                 self.assertEqual(self.repo.check(gate=gate), [])
 
-    @unittest.skipUnless(hasattr(os, "geteuid") and os.geteuid() != 0, "権限で読めなくできる環境だけで確かめる")
     def test_unreadable_file(self):
-        path = self.repo.path(REQ)
-        path.chmod(0)
-        self.addCleanup(path.chmod, 0o644)
+        lock(self, self.repo.path(REQ))
         messages = self.repo.messages(REQ)
         self.assertEqual(len(messages), 1, messages)
         self.assertTrue(messages[0].startswith("読めない: "), messages)
         messages = self.repo.messages(DESIGN)
         self.assertTrue(any(m.startswith(f"上流のファイルを読めない: {REQ}（") for m in messages), messages)
+
+    def test_unreadable_directory(self):
+        # Python 3.12 までの Path.exists は EACCES で例外を送る。トレースバックにせず 1 行のエラーにする
+        rel = f"{SPEC}/資料/ガイド.md"
+        self.repo.write(rel, "x\n")
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
+        lock(self, self.repo.path(f"{SPEC}/資料"))
+        lock(self, self.repo.path(f"{SPEC}/mocks"))
+        messages = self.repo.messages(DESIGN)
+        self.assertEqual(len(messages), 2, messages)
+        self.assertTrue(messages[0].startswith("リンク先を調べられない: mocks/list.html（"), messages)
+        self.assertTrue(messages[1].startswith(f"上流のファイルを調べられない: {rel}（"), messages)
+
+    def test_unreadable_directory_in_expansion(self):
+        secret = self.repo.path(f"{SPEC}/secret")
+        secret.mkdir()
+        lock(self, secret)
+        files, errors = specdoc.run_check([str(self.repo.path(SPEC))])
+        self.assertEqual([p.name for p in files], ["design.md", "plan.md", "requirements.md"])
+        self.assertEqual([(p, line) for p, line, _ in errors], [(secret, 1)])
+        self.assertTrue(errors[0][2].startswith("調べられない: "), errors)
+
+    def test_directory_expansion_matches_exact_names(self):
+        # 大文字・小文字を区別しない macOS でも、Design.md を型の文書として拾わない
+        other = self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN)).parent
+        files, errors = specdoc.run_check([str(other)])
+        self.assertEqual(files, [])
+        self.assertEqual([(p, msg) for p, _, msg in errors], [(other, "型の文書（requirements.md・design.md・plan.md）が無い")])
+
+    def test_directory_expansion_does_not_follow_symlinks(self):
+        try:
+            os.symlink(self.repo.path(SPEC), self.repo.path("specs/13-other"), target_is_directory=True)
+        except OSError as e:
+            self.skipTest(f"シンボリックリンクを作れない環境（{e}）")
+        files, errors = specdoc.run_check([str(self.repo.path("specs"))])
+        self.assertEqual([p.relative_to(self.repo.root).as_posix() for p in files], [DESIGN, PLAN, REQ])
+        self.assertEqual(errors, [])
 
 
 class SplitTest(unittest.TestCase):
@@ -944,9 +1082,40 @@ class CliTest(unittest.TestCase):
             (SPEC, f"{SPEC}:1: ファイルが無い\n"),
             ("README.md", "README.md:1: specs/ の下のファイルを指定する\n"),
         ]
+        # 大文字・小文字を区別しない macOS でも、名前が違えば無いものとする。長すぎる名前も無いものとする
+        for arg in (REQ.replace("invoice", "Invoice"), REQ.replace("requirements", "Requirements"), f"{SPEC}/{'a' * 300}.md", "a" * 300 + ".md"):
+            cases.append((arg, f"{arg}:1: ファイルが無い\n"))
         for arg, expected in cases:
             with self.subTest(arg=arg):
                 self.assertEqual(self.run_main("hash", arg), (1, expected))
+
+    def test_hash_prints_nfc_path(self):
+        # macOS で補完した NFD のパスを渡しても、上流に書く NFC のパスを出す
+        rel = f"{SPEC}/資料/ガイド.md"
+        nfd = unicodedata.normalize("NFD", rel)
+        self.repo.write(nfd, "x\n")
+        digest = specdoc.blob_hash(b"x\n")[: specdoc.HASH_LEN]
+        self.assertEqual(self.run_main("hash", nfd), (0, f"{rel}@{digest}\n"))
+
+    def test_check_too_long_path(self):
+        arg = "a" * 300 + ".md"
+        self.assertEqual(self.run_main("check", arg), (1, f"{arg}:1: ファイルもディレクトリも無い\n"))
+
+    def test_path_on_another_drive_is_shown_as_given(self):
+        # Windows の relpath はドライブが違うと ValueError を送る
+        path = str(self.repo.path("nothing"))
+        with mock.patch.object(specdoc.os.path, "relpath", side_effect=ValueError("path is on mount 'C:', start on mount 'D:'")):
+            self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルもディレクトリも無い\n"))
+
+    def test_output_is_utf8_whatever_the_locale(self):
+        # LANG=C の Linux では、標準出力の文字コードが ASCII になる
+        out = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+        err = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+        with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
+            code = specdoc.main(["check", "nothing"])
+        out.flush()
+        self.assertEqual(code, 1)
+        self.assertEqual(out.buffer.getvalue().decode("utf-8"), "nothing:1: ファイルもディレクトリも無い\n")
 
     def test_html_error_and_notes(self):
         self.run_main("html", REQ)
