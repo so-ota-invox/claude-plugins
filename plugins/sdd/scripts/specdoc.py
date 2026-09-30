@@ -2,8 +2,8 @@
 """要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
 
 使い方（scripts/specdoc.py は sdd plugin のディレクトリからのパス）:
-  python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイルまたはディレクトリ>...
-  python3 scripts/specdoc.py html <ファイルまたはディレクトリ>...
+  python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
+  python3 scripts/specdoc.py html <ファイル>...
   python3 scripts/specdoc.py hash <ファイル>
 
 型は plugin の formats/ に置く。Python 3.9 以上の標準ライブラリだけで、macOS と Linux（WSL を含む）で動く。
@@ -35,19 +35,23 @@ STAGES = ("requirements", "design", "plan", "release")
 SCENARIO_KINDS = ("正常", "異常", "境界")
 DIFF_KINDS = ("既存", "追加", "変更", "削除")
 TABLE_HEADER = ("意味", "型・長さ", "必須", "制約", "差分")
-RESERVED_CHILD_NAMES = ("mocks", "specs")
+SPECS_DIR = "specs"
+RESERVED_CHILD_NAMES = ("mocks", SPECS_DIR)
 PARENT_ONLY_KEY = "分割したとき親だけに置く見出し"
 SPLIT_SECTION = ("サブ機能分割",)
 DATA_USE_SECTION = ("機能設計", "読み書きするデータ")
 TABLE_SECTION = ("データ設計", "テーブル定義")
+FEATURE_SECTION = ("機能概要",)
+NFR_SECTION = ("非機能要件",)
 AC_SECTION = ("受け入れ基準",)
 SCENARIO_SECTION = ("シナリオ",)
+QUESTION_SECTION = ("要確認",)
 
 # 番号を定義する見出しと、そこで定義する番号の種類
 DEF_SECTIONS = {
-    "requirements": {("機能概要",): "R", ("非機能要件",): "R", ("要確認",): "Q"},
-    "design": {AC_SECTION: "AC", ("要確認",): "Q"},
-    "plan": {SCENARIO_SECTION: "S", ("要確認",): "Q"},
+    "requirements": {FEATURE_SECTION: "R", NFR_SECTION: "R", QUESTION_SECTION: "Q"},
+    "design": {AC_SECTION: "AC", QUESTION_SECTION: "Q"},
+    "plan": {SCENARIO_SECTION: "S", QUESTION_SECTION: "Q"},
 }
 # 番号の下の箇条に書く項目。値は必須かどうか
 ID_FIELDS = {
@@ -86,6 +90,8 @@ SEPARATOR_CELL_RE = re.compile(r"^-{3,}$")
 LINK_DEST_RE = re.compile(r"^[^\s()<>]+$")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 WEB_RE = re.compile(r"^(?:https?|mailto):")
+LINK_PATH_RE = re.compile(r"[^?#]*")
+ENCODED_SEP_RE = re.compile(r"%(?:2f|5c)", re.IGNORECASE)
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 UNSPLIT_RE = re.compile(r"^分割しない。理由: \S")
 ENTITY_RE = re.compile(r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});")
@@ -180,7 +186,10 @@ def exact_kind(base, parts):
 
 
 def bad_repo_path(rel):
-    """上流と親に書く、リポジトリルートからの相対パスの形が誤っていれば真。check と html で同じ判定にする。"""
+    """html で上流と親をリンクにするとき、リポジトリルートからの相対パスの形が誤っていれば真。
+
+    check は上流と親を決まったパスとの一致で照らすので、この判定を使わない。html は照合をしないので、ここでリポジトリの外や絶対パスへのリンクを防ぐ。
+    """
     return rel.startswith("/") or "\\" in rel or any(p in ("", ".", "..") for p in rel.split("/"))
 
 
@@ -285,7 +294,14 @@ def link_dest_error(dest):
         return f"リンク先は相対パスか http・https・mailto にする: {dest}"
     if dest.startswith("/"):
         return f"リンク先は相対パスで書く: {dest}"
+    if ENCODED_SEP_RE.search(link_path(dest)):
+        return f"リンク先のパスに %2F・%5C を入れない（区切りは / にする）: {dest}"
     return None
+
+
+def link_path(dest):
+    """リンク先のパスの部分（最初の ? か # より前）を返す。check と html で同じ分け方にする。"""
+    return LINK_PATH_RE.match(dest).group(0)
 
 
 def parse_inline(s, errors, in_link=False, in_bold=False):
@@ -686,13 +702,18 @@ class Doc:
         self.split = None  # 子の名前 -> [受ける R]
         self.tables = None  # テーブル名 -> カラム名の集合
         self.data_use = []  # [(行, テーブル, カラム)]
+        self.hash = None  # 上流に書く hash。読めなければ None
+        self.read_error = None
         try:
             data = path.read_bytes()
         except OSError as e:
+            self.read_error = e.strerror or str(e)
             self.blocks = []
             self.line_count = 1
-            self.syntax_errors = [(1, f"読めない: {e.strerror or e}")]
+            self.syntax_errors = [(1, f"読めない: {self.read_error}")]
+            self.locate()  # 置き場が合っていれば、html が古い .html を消せるようにする
             return
+        self.hash = blob_hash(data)[:HASH_LEN]
         try:
             text = data.decode("utf-8")
             decode_error = False
@@ -777,7 +798,7 @@ class Doc:
 
     def locate(self):
         for anc in self.path.parents:
-            if anc.name == "specs":
+            if anc.name == SPECS_DIR:
                 parts = self.path.relative_to(anc).parts
                 break
         else:
@@ -799,9 +820,9 @@ class Doc:
                 return
         # 大文字・小文字を区別しないファイルシステムでも、Linux と同じく名前の違いを誤りにする
         try:
-            exact = exact_kind(str(anc.parent), ("specs",) + parts) == "file"
+            exact = exact_kind(str(anc.parent), (SPECS_DIR,) + parts) == "file"
         except OSError as e:
-            self.add_error(1, f"パスを調べられない（{e.strerror or e}）")
+            self.add_error(1, f"パスを調べられない: {e.strerror or e}")
             return
         if not exact:
             self.add_error(1, "パスの大文字・小文字が実際の名前と違う")
@@ -1127,7 +1148,7 @@ class Doc:
                 dest = tok[2]
                 if link_dest_error(dest) or dest.startswith("#") or WEB_RE.match(dest):
                     continue
-                target = unquote(dest.split("#", 1)[0].split("?", 1)[0])
+                target = unquote(link_path(dest))
                 if not target:
                     continue
                 if nfc(target) != target:
@@ -1192,45 +1213,33 @@ def check_upstream(doc, err):
     if doc.kind == "requirements" or entry is None:
         return
     item = entry[0]
+    # 上流は同じ機能の型の文書に限る。パスは specs/ の下の名前の規則で英数字になるので、字面で比べる
+    required = required_upstreams(doc)
     listed = set()
     for c in item.children:
         m = UPSTREAM_RE.match(c.text)
         if not m:
             continue
         rel, short = m.group(1), m.group(2)
-        if bad_repo_path(rel):
-            err(c.line, f"上流のパスはリポジトリルートからの相対パスで書く: {rel}")
-            continue
-        if nfc(rel) != rel:
-            # NFD の名前は macOS では開けるが Linux では開けない
-            err(c.line, f"上流のパスの文字を NFC にする（hash の出力をそのまま書く）: {rel}")
+        if rel not in required:
+            err(c.line, f"上流に書けるのは {'・'.join(required)} だけ: {rel}")
             continue
         if rel in listed:
             err(c.line, f"上流が重なっている: {rel}")
             continue
         listed.add(rel)
-        parts = rel.split("/")
-        target = doc.root.joinpath(*parts)
-        try:
-            kind = exact_kind(str(doc.root), parts)
-        except OSError as e:
-            err(c.line, f"上流のファイルを調べられない: {rel}（{e.strerror or e}）")
-            continue
-        if kind != "file":
+        up = doc.ws.load(doc.root.joinpath(*rel.split("/")))
+        if up is None:
             err(c.line, f"上流のファイルが無い: {rel}")
             continue
-        try:
-            current = blob_hash(target.read_bytes())
-        except OSError as e:
-            err(c.line, f"上流のファイルを読めない: {rel}（{e.strerror or e}）")
+        if up.read_error is not None:
+            err(c.line, f"上流のファイルを読めない: {rel}（{up.read_error}）")
             continue
-        if not current.startswith(short):
-            err(c.line, f"上流の hash が合わない: {rel}（今は {current[:HASH_LEN]}）。下流に影響を反映してから書き換える")
-        if target.name in DOC_FILES:
-            up = doc.ws.load(target)
-            if up is not None and up.root is not None and up.state != "approved":
-                err(c.line, f"上流が approved でない: {rel}")
-    for rel in required_upstreams(doc):
+        if up.hash != short:
+            err(c.line, f"上流の hash が合わない: {rel}（今は {up.hash}）。下流に影響を反映してから書き換える")
+        if up.root is not None and up.state != "approved":
+            err(c.line, f"上流が approved でない: {rel}")
+    for rel in required:
         if rel not in listed:
             err(item.line, f"上流に {rel} が無い")
 
@@ -1239,6 +1248,9 @@ def listed_in_parent(doc, err):
     top = doc.spec_doc("design")
     if top is None:
         err(1, f"親の設計書 {doc.spec_rel}/design.md が無い")
+        return None
+    if top.read_error is not None:
+        err(1, f"親の設計書 {doc.spec_rel}/design.md を読めない: {top.read_error}")
         return None
     if not top.split or doc.child not in top.split:
         err(1, f"親の設計書の「サブ機能分割」に {doc.child} が無い")
@@ -1347,13 +1359,17 @@ class Renderer:
             return None
         if dest.startswith("#") or WEB_RE.match(dest):
             return dest
-        path, sep, frag = dest.partition("#")
-        if path.rsplit("/", 1)[-1] in DOC_FILES:
-            target = Path(os.path.normpath(str(self.doc.path.parent / unquote(path))))
+        path = link_path(dest)
+        target = Path(os.path.normpath(str(self.doc.path.parent / unquote(path))))
+        return self.html_href(path, target) + dest[len(path):]
+
+    def html_href(self, href, target):
+        """href の最後の名前が型の文書で、target が specs/ の下の置き場の合った文書なら、.md を .html に書き換える。"""
+        if href.rsplit("/", 1)[-1] in DOC_FILES:
             other = self.doc.ws.load(target)
             if other is not None and other.root is not None:
-                path = path[:-3] + ".html"
-        return path + sep + frag
+                return href[:-3] + ".html"
+        return href
 
     def href_to(self, path):
         return os.path.relpath(str(path), str(self.doc.path.parent)).replace(os.sep, "/")
@@ -1433,13 +1449,10 @@ class Renderer:
         if SCHEME_RE.match(href) or href[:1] <= " ":
             href = "./" + href
         label = rel
-        if target.name in DOC_FILES:
-            other = self.doc.ws.load(target)
-            if other is not None and other.root is not None:
-                href = href[:-3] + ".html"
-            if other is not None and other.title_block is not None:
-                label = plain(other.title_block.inline)
-        link = f'<a href="{esc(href)}">{esc(label)}</a>'
+        other = self.doc.ws.load(target) if target.name in DOC_FILES else None
+        if other is not None and other.title_block is not None:
+            label = plain(other.title_block.inline)
+        link = f'<a href="{esc(self.html_href(href, target))}">{esc(label)}</a>'
         return f"{link} <code>{esc(code)}</code>" if code else link
 
     def bullets(self, items):
@@ -1507,10 +1520,7 @@ class Renderer:
 
 
 def expand(args):
-    """引数を型の文書のパスへ広げる。ディレクトリは mocks を除いて下をたどる。
-
-    名前は大文字・小文字まで一致するものだけを拾う。シンボリックリンクのディレクトリはたどらない（Python の版で挙動を変えないため）。
-    """
+    """引数を型の文書のパスにする。ディレクトリは受け付けない（どのファイルを渡すかは呼び出す側が決める）。"""
     files = []
     errors = []
     for arg in args:
@@ -1520,39 +1530,15 @@ def expand(args):
         except OSError as e:
             errors.append((path, 1, f"調べられない: {e.strerror or e}"))
             continue
-        if kind == "dir":
-            found = []
-            walk_errors = []
-            for top, dirs, names in os.walk(path, onerror=walk_errors.append):
-                dirs[:] = [d for d in dirs if d != "mocks"]
-                for name in names:
-                    if name not in DOC_FILES:
-                        continue
-                    p = Path(top) / name
-                    try:
-                        if stat_kind(p) == "file":
-                            found.append(p)
-                    except OSError as e:
-                        walk_errors.append(e)
-            for e in walk_errors:
-                errors.append((Path(e.filename or path), 1, f"調べられない: {e.strerror or e}"))
-            if not found and not walk_errors:
-                errors.append((path, 1, f"型の文書（{DOC_LIST}）が無い"))
-            files.extend(sorted(found, key=lambda p: p.as_posix()))
-        elif kind == "file":
-            if path.name in DOC_FILES:
-                files.append(path)
-            else:
-                errors.append((path, 1, f"型の文書（{DOC_LIST}）ではない"))
-        elif kind == "other":
-            errors.append((path, 1, "ファイルでもディレクトリでもない"))
-        else:
-            errors.append((path, 1, "ファイルもディレクトリも無い"))
-    unique = []
-    for p in files:
-        if p not in unique:
-            unique.append(p)
-    return unique, errors
+        if kind is None:
+            errors.append((path, 1, "ファイルが無い"))
+        elif kind != "file":
+            errors.append((path, 1, "ファイルを指定する"))
+        elif path.name not in DOC_FILES:
+            errors.append((path, 1, f"型の文書（{DOC_LIST}）ではない"))
+        elif path not in files:
+            files.append(path)
+    return files, errors
 
 
 def run_check(args, gate=None, require_approved=False):
@@ -1598,27 +1584,17 @@ def run_html(args, notes=None):
 
 
 def run_hash(arg):
-    """上流に書く パス@hash の行と終了コードを返す。"""
-    path = Path(os.path.abspath(arg))
-    anc = next((a for a in path.parents if a.name == "specs"), None)
-    try:
-        if anc is None:
-            kind = stat_kind(path)
-        else:
-            # 大文字・小文字の違う名前で出すと、Linux の check で上流のファイルが見つからない
-            kind = exact_kind(str(anc.parent), path.relative_to(anc.parent).parts)
-    except OSError as e:
-        return 1, f"{arg}:1: 調べられない: {e.strerror or e}"
-    if kind != "file":
-        return 1, f"{arg}:1: ファイルが無い"
-    if anc is None:
-        return 1, f"{arg}:1: specs/ の下のファイルを指定する"
-    try:
-        data = path.read_bytes()
-    except OSError as e:
-        return 1, f"{arg}:1: 読めない: {e.strerror or e}"
-    rel = nfc(path.relative_to(anc.parent).as_posix())
-    return 0, f"{rel}@{blob_hash(data)[:HASH_LEN]}"
+    """上流に書く パス@hash の行と終了コードを返す。置き場の合った型の文書だけを受け付ける。"""
+    files, errors = expand([arg])
+    if files:
+        doc = Workspace().load(files[0])
+        if doc.read_error is not None:
+            errors.append((doc.path, 1, f"読めない: {doc.read_error}"))
+        elif doc.root is None:
+            errors.extend((doc.path, line, msg) for line, msg in doc.local_errors)
+    if errors:
+        return 1, "\n".join(format_errors(errors))
+    return 0, f"{doc.path.relative_to(doc.root).as_posix()}@{doc.hash}"
 
 
 def display(path):

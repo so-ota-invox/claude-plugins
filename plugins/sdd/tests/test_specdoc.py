@@ -1,6 +1,7 @@
 """specdoc.py の照合・変換・hash を確かめる。"""
 
 import contextlib
+import errno
 import io
 import os
 import sys
@@ -140,8 +141,12 @@ class Repo:
     def ref(self, rel):
         return f"{rel}@{specdoc.blob_hash(self.path(rel).read_bytes())[:specdoc.HASH_LEN]}"
 
+    def docs(self):
+        """specs/ の下の型の文書のパスを、名前の順に返す。specdoc.py はディレクトリを受け付けないので、渡すファイルをここで並べる。"""
+        return sorted(p.relative_to(self.root).as_posix() for p in self.path("specs").rglob("*.md") if p.name in specdoc.DOC_FILES)
+
     def check(self, *rels, gate=None, approved=False):
-        paths = [str(self.path(r)) for r in rels or (SPEC,)]
+        paths = [str(self.path(r)) for r in rels or self.docs()]
         _, errors = specdoc.run_check(paths, gate, approved)
         return [(p.relative_to(self.root).as_posix(), line, msg) for p, line, msg in errors]
 
@@ -193,6 +198,14 @@ class TemplateTest(unittest.TestCase):
         self.assertIn("影響範囲", texts)
         self.assertIn("受け入れ基準", texts)
 
+    def test_research_scope_closes_design_and_plan(self):
+        for kind in ("design", "plan"):
+            with self.subTest(kind=kind):
+                self.assertEqual(specdoc.Template(kind).headings[-1], (2, "調査範囲"))
+        self.assertNotIn("調査範囲", [text for _, text in specdoc.Template("requirements").headings])
+
+
+class HelperTest(unittest.TestCase):
     def test_blob_hash_matches_git(self):
         self.assertEqual(specdoc.blob_hash(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
         self.assertEqual(specdoc.blob_hash(b"hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a")
@@ -201,7 +214,7 @@ class TemplateTest(unittest.TestCase):
         self.assertEqual(specdoc.blob_hash(b"a\r\nb\r\n"), specdoc.blob_hash(b"a\nb\n"))
 
     def test_repo_relative_path_form(self):
-        # 上流の照合（check）とリンクの書き出し（html）が同じ判定を使う
+        # html が上流と親をリンクにするときの判定
         for rel in ("/specs/x.md", "specs//x.md", "specs/./x.md", "specs/../x.md", "specs\\x.md", "specs/x/", ""):
             with self.subTest(rel=rel):
                 self.assertTrue(specdoc.bad_repo_path(rel))
@@ -209,12 +222,6 @@ class TemplateTest(unittest.TestCase):
 
     def test_mermaid_integrity_is_sha384(self):
         self.assertRegex(specdoc.MERMAID_INTEGRITY, r"^sha384-[A-Za-z0-9+/]{64}$")
-
-    def test_research_scope_closes_design_and_plan(self):
-        for kind in ("design", "plan"):
-            with self.subTest(kind=kind):
-                self.assertEqual(specdoc.Template(kind).headings[-1], (2, "調査範囲"))
-        self.assertNotIn("調査範囲", [text for _, text in specdoc.Template("requirements").headings])
 
 
 class CheckTest(unittest.TestCase):
@@ -455,31 +462,27 @@ class CheckTest(unittest.TestCase):
         self.assertIn(f"上流に {REQ} が無い", messages)
 
     def test_upstream_paths(self):
-        ups = [self.repo.ref(REQ), f"{SPEC}/nothing.md@0123456789ab", f"../{REQ}@0123456789ab", self.repo.ref(REQ)]
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups), DESIGN_BODIES))
+        # 上流に書けるのは同じ機能の決まった型の文書だけ。在るファイルで hash が合っていても、ほかのパスは誤りにする
+        guide = f"{SPEC}/資料/ガイド.md"
+        other = "specs/13-other/requirements.md"
+        self.repo.write(guide, "x\n")
+        self.repo.write(other, self.repo.read(REQ))
+        wrong = [f"{SPEC}/Requirements.md", f"../{REQ}", f"{SPEC}/{'a' * 300}.md"]
+        ups = [self.repo.ref(REQ), self.repo.ref(guide), self.repo.ref(other)] + [f"{rel}@0123456789ab" for rel in wrong]
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups + [self.repo.ref(REQ)]), DESIGN_BODIES))
         self.assertEqual(
             self.repo.messages(DESIGN),
-            [
-                f"上流のファイルが無い: {SPEC}/nothing.md",
-                f"上流のパスはリポジトリルートからの相対パスで書く: ../{REQ}",
-                f"上流が重なっている: {REQ}",
-            ],
+            [f"上流に書けるのは {REQ} だけ: {rel}" for rel in [guide, other] + wrong] + [f"上流が重なっている: {REQ}"],
         )
+
+    def test_missing_upstream_file(self):
+        self.repo.path(REQ).unlink()
+        self.assertIn(f"上流のファイルが無い: {REQ}", self.repo.messages(DESIGN))
 
     def test_upstream_hash_ignores_crlf_checkout(self):
         # Windows の git が CRLF で取り出しても、上流の hash は合う
         self.repo.write(REQ, self.repo.read(REQ).replace("\n", "\r\n"))
         self.assertEqual(self.repo.check(DESIGN), [])
-
-    def test_upstream_path_must_be_nfc(self):
-        rel = f"{SPEC}/資料/ガイド.md"
-        self.repo.write(rel, "x\n")
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
-        self.assertEqual(self.repo.check(DESIGN), [])
-        nfd = unicodedata.normalize("NFD", rel)
-        ups = [self.repo.ref(REQ), self.repo.ref(rel).replace(rel, nfd)]
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups), DESIGN_BODIES))
-        self.assertEqual(self.repo.messages(DESIGN), [f"上流のパスの文字を NFC にする（hash の出力をそのまま書く）: {nfd}"])
 
     def test_link_must_be_nfc(self):
         self.repo.write(f"{SPEC}/mocks/ガイド.html", "<!DOCTYPE html>\n")
@@ -491,10 +494,6 @@ class CheckTest(unittest.TestCase):
 
     def test_names_must_match_case(self):
         # 大文字・小文字を区別しない macOS でも、区別する Linux と同じく見つからない
-        wrong = f"{SPEC}/Requirements.md"
-        ups = [self.repo.ref(REQ), self.repo.ref(REQ).replace(REQ, wrong)]
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups), DESIGN_BODIES))
-        self.assertEqual(self.repo.messages(DESIGN), [f"上流のファイルが無い: {wrong}"])
         for dest in ("mocks/List.html", "Mocks/list.html"):
             with self.subTest(dest=dest):
                 self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=f"- 一覧画面: [モック]({dest})"))
@@ -506,16 +505,19 @@ class CheckTest(unittest.TestCase):
         if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
             expected = "パスの大文字・小文字が実際の名前と違う"
         else:
-            expected = "ファイルもディレクトリも無い"
+            expected = "ファイルが無い"
         self.assertEqual(self.repo.messages(typed), [expected])
+
+    def test_path_that_cannot_be_examined(self):
+        # 置き場を 1 段ずつ照らせないときは、トレースバックにせず 1 行のエラーにする
+        with mock.patch.object(specdoc, "exact_kind", side_effect=PermissionError(errno.EACCES, "Permission denied")):
+            self.assertEqual(self.repo.messages(REQ), ["パスを調べられない: Permission denied"])
 
     def test_too_long_names_are_missing(self):
         # Python 3.12 までの Path.exists は ENAMETOOLONG で例外を送る
         name = "a" * 300 + ".md"
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
         self.assertEqual(self.repo.messages(REQ), [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"])
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), f"{SPEC}/{name}@0123456789ab"]), DESIGN_BODIES))
-        self.assertEqual(self.repo.messages(DESIGN), [f"上流のファイルが無い: {SPEC}/{name}"])
 
     def test_gate(self):
         # ゲートは、解決する工程がそのゲートかそれより前の要確認で止まる
@@ -596,11 +598,19 @@ class CheckTest(unittest.TestCase):
             ["要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く"],
         )
 
-    def test_directory_expansion_skips_mocks(self):
-        self.repo.write(f"{SPEC}/mocks/design.md", "壊れた文書\n")
-        files, errors = specdoc.run_check([str(self.repo.path(SPEC))])
-        self.assertEqual([p.name for p in files], ["design.md", "plan.md", "requirements.md"])
-        self.assertEqual(errors, [])
+    def test_directory_is_not_accepted(self):
+        # どのファイルを渡すかは呼び出す側が決める。ディレクトリの下のどれを見るかの規則を持たない
+        for run in (specdoc.run_check, specdoc.run_html):
+            with self.subTest(run=run.__name__):
+                files, errors = run([str(self.repo.path(SPEC))])
+                self.assertEqual(files, [])
+                self.assertEqual([msg for _, _, msg in errors], ["ファイルを指定する"])
+
+    def test_document_name_must_match_exactly(self):
+        # 大文字・小文字を区別しない macOS でも、Design.md を型の文書として扱わない
+        rel = "specs/13-other/Design.md"
+        self.repo.write(rel, self.repo.read(DESIGN))
+        self.assertEqual(self.repo.messages(rel), [f"型の文書（{specdoc.DOC_LIST}）ではない"])
 
     def set_ac_reqs(self, value):
         acs = DESIGN_BODIES["受け入れ基準"].replace("  - 要件: R-001、R-003", f"  - 要件: {value}")
@@ -648,11 +658,19 @@ class CheckTest(unittest.TestCase):
             ("/etc/passwd", "リンク先は相対パスで書く: /etc/passwd"),
             ("\x01javascript:alert%281%29", "リンク先に制御文字を入れない"),
             ("a\x7fb.md", "リンク先に制御文字を入れない"),
+            # check は %2F を区切りとして照らすが、ブラウザは区切りと読まない
+            ("mocks%2Flist.html", "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%2Flist.html"),
+            ("mocks%5clist.html", "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%5clist.html"),
         ]
         for dest, expected in cases:
             with self.subTest(dest=dest):
                 self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), [expected])
+        # ? と # より後はパスではない
+        for dest in ("mocks/list.html?q=a%2Fb", "mocks/list.html#a%2Fb", "mocks/list.html?q=1#x"):
+            with self.subTest(dest=dest):
+                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.assertEqual(self.repo.check(REQ), [])
 
     def test_link_destination_without_backslash(self):
         # ブラウザは http・https・file の URL でバックスラッシュを / と読むので、\\host は //host と同じになる
@@ -678,40 +696,10 @@ class CheckTest(unittest.TestCase):
 
     def test_unreadable_directory(self):
         # Python 3.12 までの Path.exists は EACCES で例外を送る。トレースバックにせず 1 行のエラーにする
-        rel = f"{SPEC}/資料/ガイド.md"
-        self.repo.write(rel, "x\n")
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
-        lock(self, self.repo.path(f"{SPEC}/資料"))
         lock(self, self.repo.path(f"{SPEC}/mocks"))
         messages = self.repo.messages(DESIGN)
-        self.assertEqual(len(messages), 2, messages)
+        self.assertEqual(len(messages), 1, messages)
         self.assertTrue(messages[0].startswith("リンク先を調べられない: mocks/list.html（"), messages)
-        self.assertTrue(messages[1].startswith(f"上流のファイルを調べられない: {rel}（"), messages)
-
-    def test_unreadable_directory_in_expansion(self):
-        secret = self.repo.path(f"{SPEC}/secret")
-        secret.mkdir()
-        lock(self, secret)
-        files, errors = specdoc.run_check([str(self.repo.path(SPEC))])
-        self.assertEqual([p.name for p in files], ["design.md", "plan.md", "requirements.md"])
-        self.assertEqual([(p, line) for p, line, _ in errors], [(secret, 1)])
-        self.assertTrue(errors[0][2].startswith("調べられない: "), errors)
-
-    def test_directory_expansion_matches_exact_names(self):
-        # 大文字・小文字を区別しない macOS でも、Design.md を型の文書として拾わない
-        other = self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN)).parent
-        files, errors = specdoc.run_check([str(other)])
-        self.assertEqual(files, [])
-        self.assertEqual([(p, msg) for p, _, msg in errors], [(other, "型の文書（requirements.md・design.md・plan.md）が無い")])
-
-    def test_directory_expansion_does_not_follow_symlinks(self):
-        try:
-            os.symlink(self.repo.path(SPEC), self.repo.path("specs/13-other"), target_is_directory=True)
-        except OSError as e:
-            self.skipTest(f"シンボリックリンクを作れない環境（{e}）")
-        files, errors = specdoc.run_check([str(self.repo.path("specs"))])
-        self.assertEqual([p.relative_to(self.repo.root).as_posix() for p in files], [DESIGN, PLAN, REQ])
-        self.assertEqual(errors, [])
 
 
 class SplitTest(unittest.TestCase):
@@ -815,6 +803,18 @@ class SplitTest(unittest.TestCase):
         self.assertIn(f"子の文書には親を書く: {DESIGN}", self.repo.messages(self.child_path("billing")))
         self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=[self.repo.ref(REQ)])
         self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に {DESIGN} が無い"])
+        # 別の子の設計書は上流に書けない
+        sibling = self.child_path("listing")
+        up = [self.repo.ref(REQ), self.repo.ref(DESIGN), self.repo.ref(sibling)]
+        self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=up)
+        self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書けるのは {REQ}・{DESIGN} だけ: {sibling}"])
+
+    def test_unreadable_parent(self):
+        # 親の設計書を読めないときは、読めないと知らせる。「サブ機能分割」に無いとは言わない
+        lock(self, self.repo.path(DESIGN))
+        messages = self.repo.messages(self.child_path("billing"))
+        self.assertTrue(any(m.startswith(f"親の設計書 {DESIGN} を読めない: ") for m in messages), messages)
+        self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
 
     def test_child_data_use_refers_to_parent_tables(self):
         acs = "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003"
@@ -872,13 +872,15 @@ class HtmlTest(unittest.TestCase):
         self.assertNotIn("<script", self.render(REQ))
 
     def test_md_links_become_html_and_text_is_escaped(self):
-        body = "A & B を比べる。[設計](design.md#AC-001) と [表](data.md)"
+        body = "A & B を比べる。[設計](design.md#AC-001) と [表](data.md) と [問](design.md?v=1)"
         self.repo.write(f"{SPEC}/data.md", "x\n")
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, **{"背景・目的": body}))
         out = self.render(REQ)
         self.assertIn("A &amp; B", out)
         self.assertIn('<a href="design.html#AC-001">設計</a>', out)
         self.assertIn('<a href="data.md">表</a>', out)
+        # check と同じく ? より前をパスとして扱う
+        self.assertIn('<a href="design.html?v=1">問</a>', out)
 
     def test_no_output_on_syntax_error(self):
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="* x"))
@@ -954,11 +956,11 @@ class HtmlTest(unittest.TestCase):
         self.assertNotIn("outside/design.html", out)
 
     def test_meta_path_that_looks_like_a_scheme(self):
+        # check は上流に書けないパスとして誤りにするが、html はリンクにしても javascript: にしない
         rel = f"{SPEC}/javascript:alert(1)"
         self.repo.write(rel, "x\n")
         self.repo.write(DESIGN, build_doc("design", meta(upstream=[self.repo.ref(REQ), self.repo.ref(rel)]), DESIGN_BODIES))
-        self.repo.write_plan()
-        self.assertEqual(self.repo.check(), [])
+        self.assertIn(f"上流に書けるのは {REQ} だけ: {rel}", self.repo.messages(DESIGN))
         out = self.meta_of(DESIGN)
         self.assertIn('<a href="./javascript:alert(1)">', out)
         self.assertNotIn('href="javascript:', out)
@@ -999,12 +1001,23 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
+    def test_stale_html_of_unreadable_document_is_removed(self):
+        self.render(REQ)
+        lock(self, self.repo.path(REQ))
+        notes = []
+        written, errors = specdoc.run_html([str(self.repo.path(REQ))], notes)
+        self.assertEqual(written, [])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertTrue(errors[0][2].startswith("読めない: "), errors)
+        self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
+        self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
+
     def test_html_outside_specs_is_never_removed(self):
         self.repo.write("docs/design.md", "x\n")
         self.repo.write("docs/design.html", "<p>人が書いた</p>\n")
         self.repo.write(f"{SPEC}/mocks/design.md", "壊れた文書\n")
         self.repo.write(f"{SPEC}/mocks/design.html", "<p>モック</p>\n")
-        for rel in ("docs/design.md", SPEC, f"{SPEC}/mocks/design.md"):
+        for rel in ("docs/design.md", f"{SPEC}/mocks/design.md"):
             with self.subTest(rel=rel):
                 notes = []
                 specdoc.run_html([str(self.repo.path(rel))], notes)
@@ -1014,7 +1027,7 @@ class HtmlTest(unittest.TestCase):
 
     def test_write_error_is_reported_and_others_continue(self):
         self.repo.path(f"{SPEC}/plan.html").mkdir()
-        written, errors = specdoc.run_html([str(self.repo.path(SPEC))])
+        written, errors = specdoc.run_html([str(self.repo.path(r)) for r in self.repo.docs()])
         self.assertEqual([p.name for p in written], ["design.html", "requirements.html"])
         self.assertEqual([(p.name, line) for p, line, _ in errors], [("plan.md", 1)])
         self.assertTrue(errors[0][2].startswith("plan.html を書けない: "), errors)
@@ -1035,7 +1048,7 @@ class CliTest(unittest.TestCase):
         return code, out.getvalue()
 
     def test_check_ok(self):
-        self.assertEqual(self.run_main("check", SPEC), (0, "ok: 3 件\n"))
+        self.assertEqual(self.run_main("check", REQ, DESIGN, PLAN), (0, "ok: 3 件\n"))
 
     def test_check_error(self):
         self.repo.replace(REQ, "## リリース日\n\nなし\n\n", "## リリース日\n\n")
@@ -1047,7 +1060,7 @@ class CliTest(unittest.TestCase):
     def test_check_missing_path(self):
         code, out = self.run_main("check", "nothing")
         self.assertEqual(code, 1)
-        self.assertEqual(out, "nothing:1: ファイルもディレクトリも無い\n")
+        self.assertEqual(out, "nothing:1: ファイルが無い\n")
 
     def test_hash(self):
         code, out = self.run_main("hash", REQ)
@@ -1055,15 +1068,15 @@ class CliTest(unittest.TestCase):
         self.assertEqual(out, self.repo.ref(REQ) + "\n")
 
     def test_html(self):
-        code, out = self.run_main("html", SPEC)
+        code, out = self.run_main("html", REQ, DESIGN, PLAN)
         self.assertEqual(code, 0)
-        self.assertEqual(out.split("\n")[:3], [f"{SPEC}/design.html", f"{SPEC}/plan.html", f"{SPEC}/requirements.html"])
+        self.assertEqual(out.split("\n")[:3], [f"{SPEC}/requirements.html", f"{SPEC}/design.html", f"{SPEC}/plan.html"])
 
     def test_check_gate_takes_english_stage_names(self):
         self.repo.path(PLAN).unlink()
-        self.assertEqual(self.run_main("check", "--gate", "release", SPEC), (0, "ok: 2 件\n"))
+        self.assertEqual(self.run_main("check", "--gate", "release", REQ, DESIGN), (0, "ok: 2 件\n"))
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
-            self.run_main("check", "--gate", "実装", SPEC)
+            self.run_main("check", "--gate", "実装", REQ)
         self.assertEqual(cm.exception.code, 2)
 
     def test_check_gate_and_approved_together(self):
@@ -1076,36 +1089,54 @@ class CliTest(unittest.TestCase):
         )
 
     def test_hash_errors(self):
+        # hash は上流に書ける文書（置き場の合った型の文書）だけを受け付ける
         self.repo.write("README.md", "x\n")
+        self.repo.write("docs/design.md", self.repo.read(DESIGN))
+        not_typed = f"型の文書（{specdoc.DOC_LIST}）ではない"
         cases = [
-            ("nothing.md", "nothing.md:1: ファイルが無い\n"),
-            (SPEC, f"{SPEC}:1: ファイルが無い\n"),
-            ("README.md", "README.md:1: specs/ の下のファイルを指定する\n"),
+            ("nothing.md", "ファイルが無い"),
+            (f"{SPEC}/{'a' * 300}.md", "ファイルが無い"),
+            ("a" * 300 + ".md", "ファイルが無い"),
+            (SPEC, "ファイルを指定する"),
+            ("README.md", not_typed),
+            (f"{SPEC}/mocks/list.html", not_typed),
+            ("docs/design.md", "specs/<id>-<slug>/ の下に置く"),
         ]
-        # 大文字・小文字を区別しない macOS でも、名前が違えば無いものとする。長すぎる名前も無いものとする
-        for arg in (REQ.replace("invoice", "Invoice"), REQ.replace("requirements", "Requirements"), f"{SPEC}/{'a' * 300}.md", "a" * 300 + ".md"):
-            cases.append((arg, f"{arg}:1: ファイルが無い\n"))
+        # 大文字・小文字を区別しないファイルシステムでも、名前の違いを誤りにする
+        self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
+        typed = "specs/proj-12-invoice/requirements.md"
+        cases.append((typed, "パスの大文字・小文字が実際の名前と違う" if self.repo.path(typed).is_file() else "ファイルが無い"))
         for arg, expected in cases:
             with self.subTest(arg=arg):
-                self.assertEqual(self.run_main("hash", arg), (1, expected))
+                self.assertEqual(self.run_main("hash", arg), (1, f"{arg}:1: {expected}\n"))
 
-    def test_hash_prints_nfc_path(self):
-        # macOS で補完した NFD のパスを渡しても、上流に書く NFC のパスを出す
-        rel = f"{SPEC}/資料/ガイド.md"
-        nfd = unicodedata.normalize("NFD", rel)
-        self.repo.write(nfd, "x\n")
-        digest = specdoc.blob_hash(b"x\n")[: specdoc.HASH_LEN]
-        self.assertEqual(self.run_main("hash", nfd), (0, f"{rel}@{digest}\n"))
+    def test_hash_of_unreadable_file(self):
+        lock(self, self.repo.path(REQ))
+        code, out = self.run_main("hash", REQ)
+        self.assertEqual(code, 1)
+        self.assertTrue(out.startswith(f"{REQ}:1: 読めない: "), out)
+
+    def test_hash_output_is_the_upstream_line(self):
+        # どこから、どんな形のパスで呼んでも、出力をそのまま上流に書けば check が通る
+        self.assertEqual(self.run_main("hash", str(self.repo.path(REQ))), (0, self.repo.ref(REQ) + "\n"))
+        os.chdir(str(self.repo.path(SPEC)))
+        code, line = self.run_main("hash", "requirements.md")
+        self.assertEqual(code, 0)
+        self.repo.write(DESIGN, build_doc("design", meta(upstream=[line.strip()]), DESIGN_BODIES))
+        code, line = self.run_main("hash", "design.md")
+        self.assertEqual(code, 0)
+        self.repo.write(PLAN, build_doc("plan", meta("draft", upstream=[line.strip()]), PLAN_BODIES))
+        self.assertEqual(self.run_main("check", "requirements.md", "design.md", "plan.md"), (0, "ok: 3 件\n"))
 
     def test_check_too_long_path(self):
         arg = "a" * 300 + ".md"
-        self.assertEqual(self.run_main("check", arg), (1, f"{arg}:1: ファイルもディレクトリも無い\n"))
+        self.assertEqual(self.run_main("check", arg), (1, f"{arg}:1: ファイルが無い\n"))
 
     def test_path_on_another_drive_is_shown_as_given(self):
         # Windows の relpath はドライブが違うと ValueError を送る
         path = str(self.repo.path("nothing"))
         with mock.patch.object(specdoc.os.path, "relpath", side_effect=ValueError("path is on mount 'C:', start on mount 'D:'")):
-            self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルもディレクトリも無い\n"))
+            self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルが無い\n"))
 
     def test_output_is_utf8_whatever_the_locale(self):
         # LANG=C の Linux では、標準出力の文字コードが ASCII になる
@@ -1115,7 +1146,7 @@ class CliTest(unittest.TestCase):
             code = specdoc.main(["check", "nothing"])
         out.flush()
         self.assertEqual(code, 1)
-        self.assertEqual(out.buffer.getvalue().decode("utf-8"), "nothing:1: ファイルもディレクトリも無い\n")
+        self.assertEqual(out.buffer.getvalue().decode("utf-8"), "nothing:1: ファイルが無い\n")
 
     def test_html_error_and_notes(self):
         self.run_main("html", REQ)
@@ -1141,7 +1172,7 @@ class CliTest(unittest.TestCase):
 
     def test_html_write_error_does_not_stop_the_others(self):
         self.repo.path(f"{SPEC}/plan.html").mkdir()
-        code, out = self.run_main("html", SPEC)
+        code, out = self.run_main("html", *self.repo.docs())
         lines = out.split("\n")
         self.assertEqual(code, 1)
         self.assertTrue(lines[0].startswith(f"{PLAN}:1: plan.html を書けない: "), out)
