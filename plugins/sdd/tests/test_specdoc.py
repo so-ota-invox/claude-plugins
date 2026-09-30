@@ -4,6 +4,7 @@ import contextlib
 import errno
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unicodedata
@@ -222,6 +223,18 @@ class HelperTest(unittest.TestCase):
 
     def test_mermaid_integrity_is_sha384(self):
         self.assertRegex(specdoc.MERMAID_INTEGRITY, r"^sha384-[A-Za-z0-9+/]{64}$")
+
+    def test_parser_reports_the_same_error_once(self):
+        parser = specdoc.Parser("")
+        before = list(parser.errors)
+        for line, msg in [(3, "x"), (1, "y"), (3, "x")] + before:
+            parser.error(line, msg)
+        self.assertEqual(parser.errors, before + [(3, "x"), (1, "y")])
+
+    def test_format_errors_orders_by_file_then_line_without_duplicates(self):
+        a, b = Path("a.md"), Path("b.md")
+        errors = [(b, 2, "x"), (a, 1, "y"), (b, 1, "z"), (b, 2, "x")]
+        self.assertEqual(specdoc.format_errors(errors), ["b.md:1: z", "b.md:2: x", "a.md:1: y"])
 
 
 class CheckTest(unittest.TestCase):
@@ -604,7 +617,7 @@ class CheckTest(unittest.TestCase):
         # どのファイルを渡すかは呼び出す側が決める。ディレクトリの下のどれを見るかの規則を持たない
         for run in (specdoc.run_check, specdoc.run_html):
             with self.subTest(run=run.__name__):
-                files, errors = run([str(self.repo.path(SPEC))])
+                files, errors = run([str(self.repo.path(SPEC))])[:2]
                 self.assertEqual(files, [])
                 self.assertEqual([msg for _, _, msg in errors], ["ファイルを指定する"])
 
@@ -846,7 +859,7 @@ class SplitTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(self.child_path("billing")), ["テーブル定義に無いカラム: invoices.total"])
 
     def test_child_html_links_to_parent_documents(self):
-        written, errors = specdoc.run_html([str(self.repo.path(self.child_path("billing")))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(self.child_path("billing")))])
         self.assertEqual(errors, [])
         out = written[0].read_bytes().decode("utf-8")
         self.assertIn('<a href="../requirements.html#R-001">R-001</a>', out)
@@ -865,7 +878,7 @@ class HtmlTest(unittest.TestCase):
         self.repo.write_valid()
 
     def render(self, rel):
-        written, errors = specdoc.run_html([str(self.repo.path(rel))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(rel))])
         self.assertEqual(errors, [])
         return written[0].read_bytes().decode("utf-8")
 
@@ -906,27 +919,27 @@ class HtmlTest(unittest.TestCase):
 
     def test_no_output_on_syntax_error(self):
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="* x"))
-        written, errors = specdoc.run_html([str(self.repo.path(REQ))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["箇条書きは - で書く"])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_no_output_on_link_form_error(self):
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
-        written, errors = specdoc.run_html([str(self.repo.path(REQ))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["リンク先は相対パスか http・https・mailto にする: javascript:alert%281%29"])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_no_output_on_not_utf8(self):
         self.repo.write(REQ, self.repo.path(REQ).read_bytes().replace("発行".encode("utf-8"), b"\xff\xfe", 1))
-        written, errors = specdoc.run_html([str(self.repo.path(REQ))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["UTF-8 で書く"])
 
     def test_no_output_outside_specs(self):
         self.repo.write("docs/design.md", self.repo.read(DESIGN))
-        written, errors = specdoc.run_html([str(self.repo.path("docs/design.md"))])
+        written, errors, _ = specdoc.run_html([str(self.repo.path("docs/design.md"))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["specs/<id>-<slug>/ の下に置く"])
 
@@ -961,8 +974,7 @@ class HtmlTest(unittest.TestCase):
         item = "- 詳細画面: [モック](mocks/detail.html)"
         self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=item))
         line = self.repo.read(DESIGN).split("\n").index(item) + 1
-        notes = []
-        written, errors = specdoc.run_html([str(self.repo.path(DESIGN))], notes)
+        written, errors, notes = specdoc.run_html([str(self.repo.path(DESIGN))])
         self.assertEqual((written, errors), ([self.repo.path(f"{SPEC}/design.html")], []))
         self.assertEqual(notes, [(self.repo.path(DESIGN), line, "警告: リンク先が無い: mocks/detail.html")])
         self.assertEqual(self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"])
@@ -1017,8 +1029,7 @@ class HtmlTest(unittest.TestCase):
     def test_stale_html_is_removed(self):
         self.render(REQ)
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="* x"))
-        notes = []
-        written, errors = specdoc.run_html([str(self.repo.path(REQ))], notes)
+        written, errors, notes = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual((written, [msg for _, _, msg in errors]), ([], ["箇条書きは - で書く"]))
         self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
@@ -1026,8 +1037,7 @@ class HtmlTest(unittest.TestCase):
     def test_stale_html_of_unreadable_document_is_removed(self):
         self.render(REQ)
         lock(self, self.repo.path(REQ))
-        notes = []
-        written, errors = specdoc.run_html([str(self.repo.path(REQ))], notes)
+        written, errors, notes = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual(len(errors), 1, errors)
         self.assertTrue(errors[0][2].startswith("読めない: "), errors)
@@ -1041,15 +1051,14 @@ class HtmlTest(unittest.TestCase):
         self.repo.write(f"{SPEC}/mocks/design.html", "<p>モック</p>\n")
         for rel in ("docs/design.md", f"{SPEC}/mocks/design.md"):
             with self.subTest(rel=rel):
-                notes = []
-                specdoc.run_html([str(self.repo.path(rel))], notes)
+                notes = specdoc.run_html([str(self.repo.path(rel))])[2]
                 self.assertEqual(notes, [])
                 self.assertTrue(self.repo.path("docs/design.html").is_file())
                 self.assertTrue(self.repo.path(f"{SPEC}/mocks/design.html").is_file())
 
     def test_write_error_is_reported_and_others_continue(self):
         self.repo.path(f"{SPEC}/plan.html").mkdir()
-        written, errors = specdoc.run_html([str(self.repo.path(r)) for r in self.repo.docs()])
+        written, errors, _ = specdoc.run_html([str(self.repo.path(r)) for r in self.repo.docs()])
         self.assertEqual([p.name for p in written], ["design.html", "requirements.html"])
         self.assertEqual([(p.name, line) for p, line, _ in errors], [("plan.md", 1)])
         self.assertTrue(errors[0][2].startswith("plan.html を書けない: "), errors)
@@ -1063,9 +1072,8 @@ class HtmlTest(unittest.TestCase):
                 f.write(data[: len(data) // 2])
             raise OSError(errno.ENOSPC, "No space left on device")
 
-        notes = []
         with mock.patch.object(Path, "write_bytes", write_half):
-            written, errors = specdoc.run_html([str(path)], notes)
+            written, errors, notes = specdoc.run_html([str(path)])
         self.assertEqual((written, errors), ([], [(path, 1, "requirements.html を書けない: No space left on device")]))
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
@@ -1177,14 +1185,26 @@ class CliTest(unittest.TestCase):
             self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルが無い\n"))
 
     def test_output_is_utf8_whatever_the_locale(self):
-        # LANG=C の Linux では、標準出力の文字コードが ASCII になる
-        out = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
-        err = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
-        with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
-            code = specdoc.main(["check", "nothing"])
-        out.flush()
-        self.assertEqual(code, 1)
-        self.assertEqual(out.buffer.getvalue().decode("utf-8"), "nothing:1: ファイルが無い\n")
+        # 標準出力・標準エラーの文字コードを ASCII にしても、スクリプトとして実行すれば UTF-8 で出す
+        env = dict(os.environ, PYTHONIOENCODING="ascii")
+        cases = [
+            (["check", "nothing"], 1, "stdout", "nothing:1: ファイルが無い\n"),
+            (["check", "--gate", "実装", "nothing"], 2, "stderr", "'実装'"),
+        ]
+        for argv, code, stream, expected in cases:
+            with self.subTest(argv=argv):
+                result = subprocess.run(
+                    [sys.executable, specdoc.__file__] + argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                self.assertEqual(result.returncode, code, result)
+                self.assertIn(expected, getattr(result, stream).decode("utf-8"))
+
+    def test_main_leaves_the_caller_streams_alone(self):
+        # モジュールから main を呼ぶ側の標準出力の設定は変えない
+        out = io.TextIOWrapper(io.BytesIO(), encoding="ascii", errors="backslashreplace")
+        with mock.patch.object(sys, "stdout", out):
+            self.assertEqual(specdoc.main(["check", "nothing"]), 1)
+        self.assertEqual(out.encoding, "ascii")
 
     def test_html_error_and_notes(self):
         self.run_main("html", REQ)

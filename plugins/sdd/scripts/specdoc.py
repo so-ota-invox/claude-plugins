@@ -35,6 +35,10 @@ STAGES = ("requirements", "design", "plan", "release")
 SCENARIO_KINDS = ("正常", "異常", "境界")
 DIFF_KINDS = ("既存", "追加", "変更", "削除")
 TABLE_HEADER = ("意味", "型・長さ", "必須", "制約", "差分")
+DATA_OPS = ("書く", "読む")
+# 値が無いことを表す語と、値を並べるときの区切り
+NONE_VALUE = "なし"
+LIST_SEP = "、"
 SPECS_DIR = "specs"
 RESERVED_CHILD_NAMES = ("mocks", SPECS_DIR)
 PARENT_ONLY_KEY = "分割したとき親だけに置く見出し"
@@ -62,7 +66,7 @@ ID_FIELDS = {
 }
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
-MERMAID_VERSION = "12.0.0"
+MERMAID_VERSION = "12.0.0"  # 上げるときは、下の MERMAID_INTEGRITY も同じ版のファイルで計算し直す
 # MERMAID_URL のファイルの sha384 を base64 にした値。版を上げたら計算し直す:
 # curl -sL <MERMAID_URL> | openssl dgst -sha384 -binary | openssl base64 -A
 MERMAID_INTEGRITY = "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
@@ -85,6 +89,8 @@ UPSTREAM_RE = re.compile(rf"^([^\s@]+)@([0-9a-f]{{{HASH_LEN}}})$")
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 COLUMN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
 HEADING_RE = re.compile(r"^(#{1,6})(?: +(.*))?$")
+HEADING_CLOSE_RE = re.compile(r"(?:^| )#+$")
+TITLE_RE = re.compile(r"^(.+?): (.+)$")
 LIST_RE = re.compile(r"^( *)-(?: +(.*))?$")
 LANG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_+.-]*$")
 SEPARATOR_CELL_RE = re.compile(r"^-{3,}$")
@@ -135,7 +141,8 @@ li:target { background: #fff8c5; }
 def blob_hash(data):
     """改行を LF にした中身の git blob hash を返す。CRLF で取り出した作業ツリーでも、LF のときと同じ値になる。"""
     data = data.replace(b"\r\n", b"\n")
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    # 改ざんの検出には使わない（git と同じ値を出すだけ）。FIPS を有効にした環境でも拒否されないようにする
+    return hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
 
 
 def nfc(text):
@@ -419,6 +426,7 @@ class Parser:
 
     def __init__(self, text):
         self.errors = []
+        self.seen = set()  # errors \u306e\u91cd\u8907\u3092\u5b9a\u6570\u6642\u9593\u3067\u898b\u308b
         self.blocks = []
         if text.startswith("\ufeff"):
             self.error(1, "BOM を付けない")
@@ -436,7 +444,8 @@ class Parser:
         self.parse()
 
     def error(self, line, msg):
-        if (line, msg) not in self.errors:
+        if (line, msg) not in self.seen:
+            self.seen.add((line, msg))
             self.errors.append((line, msg))
 
     def check_tab(self, i):
@@ -487,7 +496,7 @@ class Parser:
             self.error(ln, "見出しは ### まで")
         if not blk.text:
             self.error(ln, "見出しの文字が空")
-        elif re.search(r"(?:^| )#+$", blk.text):
+        elif HEADING_CLOSE_RE.search(blk.text):
             self.error(ln, "見出しの末尾に # を書かない")
         if blk.level == 1 and ln != 1:
             self.error(ln, "# の見出しは 1 行目に 1 つだけ")
@@ -608,8 +617,8 @@ class Template:
         if len(blocks) > 1 and blocks[1].kind == "list":
             for item in blocks[1].items:
                 m = KV_RE.match(item.text)
-                if m and m.group(1) == PARENT_ONLY_KEY and m.group(2) and m.group(2) != "なし":
-                    self.parent_only = {name.strip() for name in m.group(2).split("、")}
+                if m and m.group(1) == PARENT_ONLY_KEY and m.group(2) and m.group(2) != NONE_VALUE:
+                    self.parent_only = {name.strip() for name in m.group(2).split(LIST_SEP)}
 
     def expected(self, child):
         """文書が持つべき見出しを (階層, 文字) の列で返す。子は親だけの見出しとその下を除く。"""
@@ -653,10 +662,10 @@ def read_fields(item, label, spec, err):
 def parse_ids(field, key, want, err, allow_none=False):
     """`R-001、R-002` の形の値から番号を取り出す。allow_none なら「なし」を許す。"""
     item, value = field
-    if not value or (allow_none and value == "なし"):
+    if not value or (allow_none and value == NONE_VALUE):
         return []
     ids = [m.group(0) for m in ID_RE.finditer(value)]
-    if any(not ID_RE.fullmatch(p) for p in value.split("、")) or any(split_id(i)[0] != want for i in ids):
+    if any(not ID_RE.fullmatch(p) for p in value.split(LIST_SEP)) or any(split_id(i)[0] != want for i in ids):
         err(item.line, f"{key} は {want}-001、{want}-002 のように番号を「、」で区切って書く")
     elif len(set(ids)) != len(ids):
         err(item.line, f"{key} に同じ番号を重ねて書かない")
@@ -672,7 +681,7 @@ def read_columns(value):
             if not m:
                 return None
             cols.append((m.group(1), m.group(2)))
-        elif tok[0] != "text" or tok[1].replace("、", "").strip():
+        elif tok[0] != "text" or tok[1].replace(LIST_SEP, "").strip():
             return None
     return cols or None
 
@@ -687,7 +696,9 @@ class Doc:
         self.root = None
         self.spec_dir = None
         self.child = None
-        self.local_errors = []  # この文書だけで分かる誤り
+        # この文書だけで分かる、置き場と型との照合の誤り。書式の誤り（syntax_errors）とは分けて持つ。
+        # html は、書式の誤りがあれば必ず書き出さないが、こちらは置き場が分からない（root が None）ときだけ書き出さない
+        self.local_errors = []
         self.title_block = None
         self.meta_block = None
         self.meta = {}  # 項目 -> (Item, 値)
@@ -879,7 +890,7 @@ class Doc:
 
     def check_title(self, tpl, err):
         b = self.title_block
-        m = re.match(r"^(.+?): (.+)$", b.text) if b else None
+        m = TITLE_RE.match(b.text) if b else None
         if not m or m.group(1) != tpl.title:
             err(1, f"1 行目は `# {tpl.title}: 件名` の形で書く")
 
@@ -1025,9 +1036,9 @@ class Doc:
             if "受け入れ基準" in fields:
                 field = fields["受け入れ基準"]
                 self.s_acs[ident] = (field[0].line, parse_ids(field, "受け入れ基準", "AC", err))
-            kind = fields.get("種別")
-            if kind and kind[1] and kind[1] not in SCENARIO_KINDS:
-                err(kind[0].line, f"種別は {'・'.join(SCENARIO_KINDS)} のどれか")
+            scenario_kind = fields.get("種別")
+            if scenario_kind and scenario_kind[1] and scenario_kind[1] not in SCENARIO_KINDS:
+                err(scenario_kind[0].line, f"種別は {'・'.join(SCENARIO_KINDS)} のどれか")
         elif typ == "Q":
             stage = fields.get("解決する工程")
             if stage and stage[1]:
@@ -1077,8 +1088,8 @@ class Doc:
                 fields = read_fields(item, name, SPLIT_FIELDS, err)
                 reqs = parse_ids(fields["要件"], "要件", "R", err, True) if "要件" in fields else []
                 dep = fields.get("依存")
-                if dep and dep[1] and dep[1] != "なし":
-                    for d in dep[1].split("、"):
+                if dep and dep[1] and dep[1] != NONE_VALUE:
+                    for d in dep[1].split(LIST_SEP):
                         d = d.strip()
                         if d not in self.split:
                             err(dep[0].line, f"依存には、先に並べた子を書く（並び順が実装順）: {d}")
@@ -1126,7 +1137,7 @@ class Doc:
                 seen = set()
                 for c in item.children:
                     m = KV_RE.match(c.text)
-                    if not m or m.group(1) not in ("書く", "読む"):
+                    if not m or m.group(1) not in DATA_OPS:
                         err(c.line, "処理の下に書けるのは 書く と 読む")
                         continue
                     if m.group(1) in seen:
@@ -1564,12 +1575,12 @@ def remove_stale_html(path, out, errors, notes):
             notes.append((path, 1, f"古い {out.name} を消した"))
 
 
-def run_html(args, notes=None):
-    """notes には、終了コードに関わらない知らせ（警告・消した HTML）を集める。"""
-    notes = [] if notes is None else notes
+def run_html(args):
+    """書き出した HTML、エラー、終了コードに関わらない知らせ（警告・消した HTML）を返す。"""
     ws = Workspace()
     files, errors = expand(args)
     written = []
+    notes = []
     for path in files:
         doc = ws.load(path)
         out = path.with_suffix(".html")
@@ -1587,11 +1598,11 @@ def run_html(args, notes=None):
             remove_stale_html(path, out, errors, notes)
             continue
         written.append(out)
-    return written, errors
+    return written, errors, notes
 
 
 def run_hash(arg):
-    """上流に書く パス@hash の行と終了コードを返す。置き場の合った型の文書だけを受け付ける。"""
+    """上流に書く パス@hash の行（エラーがあれば None）とエラーを返す。置き場の合った型の文書だけを受け付ける。"""
     files, errors = expand([arg])
     if files:
         doc = Workspace().load(files[0])
@@ -1600,8 +1611,8 @@ def run_hash(arg):
         elif doc.root is None:
             errors.extend((doc.path, line, msg) for line, msg in doc.local_errors)
     if errors:
-        return 1, "\n".join(format_errors(errors))
-    return 0, f"{doc.path.relative_to(doc.root).as_posix()}@{doc.hash}"
+        return None, errors
+    return f"{doc.path.relative_to(doc.root).as_posix()}@{doc.hash}", errors
 
 
 def display(path):
@@ -1616,19 +1627,12 @@ def format_errors(errors):
     order = {}
     for path, _, _ in errors:
         order.setdefault(path, len(order))
-    lines = []
-    for path, line, msg in sorted(errors, key=lambda e: (order[e[0]], e[1])):
-        text = f"{display(path)}:{line}: {msg}"
-        if text not in lines:
-            lines.append(text)
-    return lines
+    ordered = sorted(errors, key=lambda e: (order[e[0]], e[1]))
+    # 並びを保ったまま重複を除く
+    return list(dict.fromkeys(f"{display(path)}:{line}: {msg}" for path, line, msg in ordered))
 
 
 def main(argv=None):
-    # 日本語を出すので、ロケールが UTF-8 でない環境（LANG=C の Linux など）でも UTF-8 で書く
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(
         prog="specdoc.py", description="要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する"
     )
@@ -1653,17 +1657,25 @@ def main(argv=None):
         print(f"ok: {len(files)} 件")
         return 0
     if args.command == "html":
-        notes = []
-        written, errors = run_html(args.paths, notes)
+        written, errors, notes = run_html(args.paths)
         for line in format_errors(errors) + format_errors(notes):
             print(line)
         for out in written:
             print(display(out))
         return 1 if errors else 0
-    code, line = run_hash(args.path)
-    print(line)
-    return code
+    upstream, errors = run_hash(args.path)
+    for line in format_errors(errors):
+        print(line)
+    if errors:
+        return 1
+    print(upstream)
+    return 0
 
 
 if __name__ == "__main__":
+    # 日本語を出すので、標準出力の文字コードが UTF-8 でない環境（UTF-8 でないロケール、PYTHONIOENCODING の指定など）でも
+    # UTF-8 で書く。LANG=C は Python 3.7 から UTF-8 モードになるので当たらない。モジュールから main を呼ぶ側の出力は変えない
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     sys.exit(main())
