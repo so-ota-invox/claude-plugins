@@ -1,6 +1,6 @@
 # 共通の型
 
-要件定義書（requirements.md）・基本設計書（design.md。以下「設計書」）・実装プラン（plan.md）に共通する書き方。文書ごとの見出しと記入要領は、同じディレクトリの requirements.md・design.md・plan.md に書く。`scripts/specdoc.py`（sdd plugin のディレクトリからのパス。以下同じ）がこの型を機械で照合する。
+要件定義書（requirements.md）・基本設計書（design.md。以下「設計書」）・実装プラン（plan.md）に共通する書き方。文書ごとの見出しと記入要領は、同じディレクトリの requirements.md・design.md・plan.md に書く。`<plugin>/scripts/specdoc.py` がこの型を機械で照合する。`<plugin>` は sdd plugin のディレクトリ（このファイルの 1 つ上）の絶対パス。
 
 ## 置き場
 
@@ -53,7 +53,7 @@
 ## 上流と hash
 
 - hash は、改行を LF にしたファイルの中身の hash（git の blob hash）の先頭 12 文字。CRLF で取り出した作業ツリーでも同じ値になる。commit hash は squash merge や rebase merge で残らないので使わない
-- `python3 scripts/specdoc.py hash <ファイル>` の出力をそのまま書く。人は hash を手で書かない
+- `python3 <plugin>/scripts/specdoc.py hash <ファイル>` の出力をそのまま書く。人は hash を手で書かない
 - 上流に書く文書。これだけを、すべて書く
   - 設計書: 要件定義書。子の設計書は親の設計書も
   - 実装プラン: 同じディレクトリの設計書。子の実装プランは親の実装プランも
@@ -180,7 +180,7 @@ specs/**/*.md text eol=lf
 
 ## HTML
 
-- 人が読むのは HTML。`python3 scripts/specdoc.py html <ファイル>...` で Markdown の隣に `.html` を書き出す。LLM に変換させない
+- 人が読むのは HTML。`python3 <plugin>/scripts/specdoc.py html <ファイル>...` で Markdown の隣に `.html` を書き出す。LLM に変換させない
 - Markdown と、リンク先の文書（有無・置き場・件名）が同じなら、バイト単位で同じ HTML が出る
 - Markdown を書いたら、人が書いても skill が書いても、最後に必ず変換する
 - 書式か置き場に誤りがある文書と、読めない文書は書き出さず、終了コード 1 で終わる。置き場の合っている文書は、前に書き出した `.html` を消し、消したことを出す。`.html` を書けなかったときと、Ctrl-C などで中断したときも、書きかけを残さないように同じく消す
@@ -196,7 +196,7 @@ specs/**/*.html
 
 ## check
 
-- `python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...`
+- `python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...`
 - 照合すること: この文書の「置き場」「文書の先頭」「管理情報」「上流と hash」「番号」「文書をまたぐ対応」「要確認」「見出し」「Markdown の書式」に書いた、文書の形と置き場の規則と、設計書の「サブ機能分割」「テーブル定義」「読み書きするデータ」の形、相対パスのリンク先の実在
 - 照合しないこと: 意味の対応、要確認を立てる条件、著者と回答者の書き方、画面モックの中身、コードとテストの中身、承認と上流の書き換えの手順。review で見る
 - check は下流の文書を見ない。下流がまだ無いことはエラーにしない

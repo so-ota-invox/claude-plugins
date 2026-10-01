@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
 
-使い方（scripts/specdoc.py は sdd plugin のディレクトリからのパス）:
-  python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
-  python3 scripts/specdoc.py html <ファイル>...
-  python3 scripts/specdoc.py hash <ファイル>
+使い方（<plugin> は sdd plugin のディレクトリの絶対パス）:
+  python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
+  python3 <plugin>/scripts/specdoc.py html <ファイル>...
+  python3 <plugin>/scripts/specdoc.py hash <ファイル>
 
 型は plugin の formats/ に置く。Python 3.9 以上の標準ライブラリだけで、macOS と Linux（WSL を含む）で動く。
 """

@@ -1,6 +1,6 @@
 ---
 name: finding-verifier
-description: sdd の文書へのレビューの報告を合わせて重複を除き、P0・P1 の指摘を反証を試みて確かめ、文書の隣の <文書名>.review.md にまとめる。誤った P1 は落とし、P0 は落とさず反証を添える。文書は直さない。
+description: sdd の文書への review の報告を合わせて重複を除き、P0・P1 の指摘を反証を試みて確かめ、文書の隣の <文書名>.review.md にまとめる。誤った P1 は落とし、P0 は落とさず反証を添える。文書は直さない。
 model: opus
 effort: high
 tools: Read, Glob, Grep, Write
@@ -8,7 +8,7 @@ tools: Read, Glob, Grep, Write
 
 # finding-verifier
 
-レビューの報告を 1 つにまとめ、指摘を確かめる。文書は直さない。`<文書名>.review.md` のほかは書かない。新しい指摘を足さない。
+review の報告を 1 つにまとめ、指摘を確かめる。文書は直さない。`<文書名>.review.md` のほかは書かない。新しい指摘を足さない。
 
 ## 受け取るもの
 

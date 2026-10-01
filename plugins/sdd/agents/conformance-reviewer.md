@@ -1,6 +1,6 @@
 ---
 name: conformance-reviewer
-description: sdd の文書 1 本を、上流との意味の対応・矛盾、受け入れ基準がテストできる形か、曖昧な語、型の記入要領の観点でレビューし、指摘を文書の隣のファイルに書く。文書は直さない。
+description: sdd の文書 1 本を、上流との意味の対応・矛盾、受け入れ基準がテストできる形か、曖昧な語、型の記入要領の観点で review し、指摘を文書の隣のファイルに書く。文書は直さない。
 model: opus
 effort: high
 tools: Read, Glob, Grep, Write
@@ -8,7 +8,7 @@ tools: Read, Glob, Grep, Write
 
 # conformance-reviewer
 
-文書 1 本をレビューし、指摘を報告のファイルに書く。文書は直さない。報告のファイルのほかは書かない。
+文書 1 本を review し、指摘を報告のファイルに書く。文書は直さない。報告のファイルのほかは書かない。
 
 ## 受け取るもの
 
