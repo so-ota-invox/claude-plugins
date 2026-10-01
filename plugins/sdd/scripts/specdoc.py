@@ -360,7 +360,7 @@ def parse_inline(s, errors, in_link=False, in_bold=False):
                 end = s.find(")", close + 2)
                 dest = s[close + 2:end] if end > 0 else ""
                 if end < 0 or not LINK_DEST_RE.match(dest) or close == i + 1:
-                    errors.append("リンクは [文字](先) の形で書く。先に空白と括弧を入れない")
+                    errors.append("リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない")
                 else:
                     msg = link_dest_error(dest)
                     if msg:
@@ -554,7 +554,7 @@ class Parser:
         if sep is not None and len(sep) == len(header) and all(SEPARATOR_CELL_RE.match(c) for c in sep):
             j += 1
         else:
-            self.error(i + 1, "表の 2 行目は、見出し行と同じ数の | --- | の区切りにする")
+            self.error(i + 1, "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする")
         while j < len(self.lines) and self.lines[j].rstrip().startswith("|"):
             self.check_tab(j)
             cells = split_row(self.lines[j].rstrip())
@@ -675,7 +675,7 @@ def parse_ids(field, key, want, err, allow_none=False):
         return []
     ids = [m.group(0) for m in ID_RE.finditer(value)]
     if any(not ID_RE.fullmatch(p) for p in value.split(LIST_SEP)) or any(split_id(i)[0] != want for i in ids):
-        err(item.line, f"{key} は {want}-001、{want}-002 のように番号を「、」で区切って書く")
+        err(item.line, f"{key} は `{want}-001、{want}-002` のように番号を「、」で区切って書く")
     elif len(set(ids)) != len(ids):
         err(item.line, f"{key} に同じ番号を重ねて書かない")
     return [i for i in ids if split_id(i)[0] == want]
@@ -879,7 +879,7 @@ class Doc:
             self.meta_block = blocks[k]
             k += 1
         else:
-            err(blocks[k].line if k < len(blocks) else 1, "見出しの直後に管理情報（- 著者: …）を書く")
+            err(blocks[k].line if k < len(blocks) else 1, "見出しの直後に管理情報（`- 著者: …`）を書く")
         current = None
         h2 = None
         for b in blocks[k:]:
@@ -966,7 +966,7 @@ class Doc:
             if upstream is not None:
                 err(upstream[0].line, "要件定義書には上流を書かない")
         elif upstream is None:
-            err(blk.line, "管理情報に上流が無い")
+            err(blk.line, "管理情報の項目が無い: 上流")
         else:
             item, value = upstream
             if value:
@@ -1026,7 +1026,7 @@ class Doc:
                         if child:
                             err(item.line, f"{typ} の番号に子の名前は入れない: {ident}")
                     elif self.child and child != self.child:
-                        err(item.line, f"子の文書の {typ} は {self.example_id(typ)} の形にする: {ident}")
+                        err(item.line, f"子の文書の {typ} は `{self.example_id(typ)}` の形にする: {ident}")
                     elif not self.child and child:
                         err(item.line, f"{typ} の番号に子の名前を入れるのは子の文書だけ: {ident}")
                     if ident in self.defs:
@@ -1649,7 +1649,8 @@ def display(path):
 
 
 # メッセージの形: 対象を添えるときは「説明: 対象」にする。OSError の理由を添えるときは対象を文の中に入れ、「説明: 理由」にする。
-# 直し方を示すときは「〜にする」「〜のどれか」のような文で書く
+# 直し方を示すときは「〜にする」「〜のどれか」のような文で書く。書く形の例はバッククォートで囲む。ただし記号 1 つ、パス、
+# バッククォートを含む形は囲まず、日本語の語句と文は「」で囲む
 def format_errors(errors):
     order = {}
     for path, _, _ in errors:

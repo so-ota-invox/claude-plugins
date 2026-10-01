@@ -261,11 +261,11 @@ class CheckTest(unittest.TestCase):
             ("&amp;", "文字参照は使えない。文字をそのまま書く"),
             ("a<br>b", "HTML は使えない（< を記号として書くならコードで囲む）"),
             ("![図](a.png)", "画像は使えない"),
-            ("[文字](a b)", "リンクは [文字](先) の形で書く。先に空白と括弧を入れない"),
+            ("[文字](a b)", "リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない"),
             ("`x", "` の対応が取れていない"),
             ("```\nx\n```", "コードブロックに言語名を書く"),
             ("```text\nx", "コードブロックが閉じていない"),
-            ("| a |\n| :-: |", "表の 2 行目は、見出し行と同じ数の | --- | の区切りにする"),
+            ("| a |\n| :-: |", "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする"),
             ("| a |\n| --- |\n| b | c |", "表の列の数が見出し行と違う（セルの中に | を書かない）"),
             ("- a\n    - b", "箇条の入れ子は 2 段まで。字下げは空白 2 つにする"),
             ("-", "空の箇条"),
@@ -376,6 +376,14 @@ class CheckTest(unittest.TestCase):
     def test_requirements_have_no_upstream(self):
         self.repo.write(REQ, build_doc("requirements", meta(upstream=["specs/x.md@0123456"]), REQ_BODIES))
         self.assertIn("要件定義書には上流を書かない", self.repo.messages(REQ))
+
+    def test_design_needs_upstream(self):
+        self.repo.write(DESIGN, build_doc("design", meta(), DESIGN_BODIES))
+        self.assertEqual(self.repo.check(DESIGN), [(DESIGN, 3, "管理情報の項目が無い: 上流")])
+
+    def test_meta_must_follow_title(self):
+        self.repo.write(REQ, build_doc("requirements", [], REQ_BODIES))
+        self.assertEqual(self.repo.check(REQ), [(REQ, 4, "見出しの直後に管理情報（`- 著者: …`）を書く")])
 
     def test_duplicate_id(self):
         bodies = with_body(REQ_BODIES, 非機能要件="- R-003: 1,000 件を 60 秒以内に発行する\n- R-002: 重ねた番号")
@@ -712,7 +720,7 @@ class CheckTest(unittest.TestCase):
         for value in ("R-001 R-003", "R-001、、R-003", "、R-001、R-003", "R-001、R-003、", "R-001、 R-003", "R-001,R-003"):
             with self.subTest(value=value):
                 self.set_ac_reqs(value)
-                self.assertIn("要件 は R-001、R-002 のように番号を「、」で区切って書く", self.repo.messages(DESIGN))
+                self.assertIn("要件 は `R-001、R-002` のように番号を「、」で区切って書く", self.repo.messages(DESIGN))
         self.set_ac_reqs("R-001、R-002、R-003")
         self.assertEqual(self.repo.check(DESIGN), [])
 
@@ -918,7 +926,7 @@ class SplitTest(unittest.TestCase):
 
     def test_child_ids_carry_the_child_name(self):
         self.write_child("billing", "- AC-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
-        self.assertIn("子の文書の AC は AC-billing-001 の形にする: AC-001", self.repo.messages(self.child_path("billing")))
+        self.assertIn("子の文書の AC は `AC-billing-001` の形にする: AC-001", self.repo.messages(self.child_path("billing")))
 
     def test_parent_only_heading_in_child(self):
         path = self.child_path("billing")
