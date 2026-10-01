@@ -28,6 +28,8 @@ LEGEND = (
     "R = 要件、AC = 受け入れ基準、S = シナリオ、Q = 要確認。"
     "子の番号は間に子の名前が入る（例: AC-billing-001）"
 )
+# 管理情報の項目名はここを正とする（下の ID_FIELDS・SPLIT_FIELDS の項目名も同じ）。read_meta などは同じ文字列で引くので、
+# 名前を変えるときは揃える
 META_KEYS = ("著者", "状態", "承認者", "凡例", "親", "上流", "元の文書")
 STATES = ("draft", "approved")
 STAGES = ("requirements", "design", "plan", "release")
@@ -38,6 +40,9 @@ DATA_OPS = ("書く", "読む")
 # 値が無いことを表す語と、値を並べるときの区切り
 NONE_VALUE = "なし"
 LIST_SEP = "、"
+# メッセージの形: 対象を添えるときは「説明: 対象」にする。OSError の理由を添えるときは対象を文の中に入れ、「説明: 理由」にする。
+# 直し方を示すときは「〜にする」「〜のどれか」のような文で書く。書く形の例はバッククォートで囲む。ただし記号 1 つ、パス、
+# バッククォートを含む形は囲まず、日本語の語句と文は「」で囲む。
 # メッセージの中で、項目や選べる値を並べるときの区切り
 MSG_SEP = "・"
 DOC_LIST = MSG_SEP.join(DOC_FILES)
@@ -1100,6 +1105,7 @@ class Doc:
                 if not (m.group(2) or "").strip():
                     err(item.line, f"説明が空: {name}")
                 fields = read_fields(item, name, SPLIT_FIELDS, err)
+                # AC の「要件」（read_id_fields）と同じ読み方にする
                 reqs = parse_ids(fields["要件"], "要件", "R", err, True) if "要件" in fields else []
                 for r in reqs:
                     owner = owners.setdefault(r, name)
@@ -1655,9 +1661,6 @@ def display(path):
     return str(path) if rel.startswith("..") else rel
 
 
-# メッセージの形: 対象を添えるときは「説明: 対象」にする。OSError の理由を添えるときは対象を文の中に入れ、「説明: 理由」にする。
-# 直し方を示すときは「〜にする」「〜のどれか」のような文で書く。書く形の例はバッククォートで囲む。ただし記号 1 つ、パス、
-# バッククォートを含む形は囲まず、日本語の語句と文は「」で囲む
 def format_errors(errors):
     order = {}
     for path, _, _ in errors:
