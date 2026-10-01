@@ -187,6 +187,12 @@ class TemplateTest(unittest.TestCase):
         text = (specdoc.FORMATS_DIR / "common.md").read_bytes().decode("utf-8")
         self.assertIn("- 凡例: " + specdoc.LEGEND + "\n", text)
 
+    def test_common_examples_use_the_design_title(self):
+        text = (specdoc.FORMATS_DIR / "common.md").read_bytes().decode("utf-8")
+        title = specdoc.Template("design").title
+        self.assertIn(f"（例: `# {title}: 請求書の一括発行`）", text)
+        self.assertIn(f"\n# {title}: 請求書の取消\n", text)
+
     def test_heading_texts_are_unique_and_parent_only_names_exist(self):
         for doc_type in ("requirements", "design", "plan"):
             with self.subTest(doc_type=doc_type):
@@ -988,7 +994,7 @@ class SplitTest(unittest.TestCase):
         self.assertEqual(errors, [])
         out = written[0].read_bytes().decode("utf-8")
         self.assertIn('<a href="../requirements.html#R-001">R-001</a>', out)
-        self.assertIn('<dt>親</dt>\n<dd><a href="../design.html">基本設計: 請求書の一括発行</a></dd>', out)
+        self.assertIn('<dt>親</dt>\n<dd><a href="../design.html">基本設計書: 請求書の一括発行</a></dd>', out)
 
     def test_gate_does_not_look_for_children(self):
         self.repo.path(self.child_path("billing")).unlink()
