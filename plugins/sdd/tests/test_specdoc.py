@@ -155,6 +155,10 @@ class Repo:
     def messages(self, *rels, **kwargs):
         return [msg for _, _, msg in self.check(*rels, **kwargs)]
 
+    def case_error(self, rel):
+        """実際の名前と大文字・小文字だけが違うパスのエラー。区別しないファイルシステムでは、そのパスでも開ける。"""
+        return "パスの大文字・小文字が実際の名前と違う" if self.path(rel).is_file() else "ファイルが無い"
+
     def write_requirements(self, bodies=REQ_BODIES, state="approved"):
         self.write(REQ, build_doc("requirements", meta(state), bodies))
 
@@ -242,6 +246,20 @@ class CheckTest(unittest.TestCase):
     def setUp(self):
         self.repo = Repo(self)
         self.repo.write_valid()
+
+    def write_question(self, rel, stage, state="draft"):
+        """rel の要確認に、解決する工程が stage の Q-001 を置く。"""
+        q = question(stage)
+        if rel == REQ:
+            self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q), state)
+        elif rel == DESIGN:
+            self.repo.write_design(with_body(DESIGN_BODIES, 要確認=q), state)
+        else:
+            self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q), state)
+
+    def set_ac_reqs(self, value):
+        acs = DESIGN_BODIES["受け入れ基準"].replace("  - 要件: R-001、R-003", f"  - 要件: {value}")
+        self.repo.write_design(with_body(DESIGN_BODIES, 受け入れ基準=acs))
 
     def test_valid_set_passes(self):
         self.assertEqual(self.repo.check(), [])
@@ -489,16 +507,6 @@ class CheckTest(unittest.TestCase):
         self.assertIn("Q-001 の下の項目が無い: 期限", messages)
         self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
 
-    def write_question(self, rel, stage, state="draft"):
-        """rel の要確認に、解決する工程が stage の Q-001 を置く。"""
-        q = question(stage)
-        if rel == REQ:
-            self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q), state)
-        elif rel == DESIGN:
-            self.repo.write_design(with_body(DESIGN_BODIES, 要確認=q), state)
-        else:
-            self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q), state)
-
     def test_question_stage_must_not_precede_the_document(self):
         cases = [
             (DESIGN, "requirements", "design.md の解決する工程は design・plan・release のどれか"),
@@ -582,21 +590,13 @@ class CheckTest(unittest.TestCase):
     def test_document_path_case_must_match(self):
         self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
         typed = "specs/proj-12-invoice/requirements.md"
-        if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
-            expected = "パスの大文字・小文字が実際の名前と違う"
-        else:
-            expected = "ファイルが無い"
-        self.assertEqual(self.repo.messages(typed), [expected])
+        self.assertEqual(self.repo.messages(typed), [self.repo.case_error(typed)])
 
     def test_document_name_case_must_match(self):
         # ファイルの名前だけが違うときも、トレースバックにせず 1 行のエラーにする
         self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
         typed = "specs/13-other/design.md"
-        if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
-            expected = "パスの大文字・小文字が実際の名前と違う"
-        else:
-            expected = "ファイルが無い"
-        self.assertEqual(self.repo.messages(typed), [expected])
+        self.assertEqual(self.repo.messages(typed), [self.repo.case_error(typed)])
 
     def test_path_that_cannot_be_examined(self):
         # 置き場を 1 段ずつ照らせないときは、トレースバックにせず 1 行のエラーにする。
@@ -712,10 +712,6 @@ class CheckTest(unittest.TestCase):
         self.repo.write(rel, self.repo.read(DESIGN))
         self.assertEqual(self.repo.messages(rel), [f"型の文書（{specdoc.DOC_LIST}）ではない"])
 
-    def set_ac_reqs(self, value):
-        acs = DESIGN_BODIES["受け入れ基準"].replace("  - 要件: R-001、R-003", f"  - 要件: {value}")
-        self.repo.write_design(with_body(DESIGN_BODIES, 受け入れ基準=acs))
-
     def test_ids_must_be_separated_by_comma(self):
         for value in ("R-001 R-003", "R-001、、R-003", "、R-001、R-003", "R-001、R-003、", "R-001、 R-003", "R-001,R-003"):
             with self.subTest(value=value):
@@ -766,8 +762,8 @@ class CheckTest(unittest.TestCase):
             with self.subTest(dest=dest):
                 self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), [expected])
-        # ? と # より後はパスではない
-        for dest in ("mocks/list.html?q=a%2Fb", "mocks/list.html#a%2Fb", "mocks/list.html?q=1#x"):
+        # ? と # より後はパスではない。URL と、# で始まる文書の中へのリンク先も %2F を照らさない
+        for dest in ("mocks/list.html?q=a%2Fb", "mocks/list.html#a%2Fb", "mocks/list.html?q=1#x", "https://example.com/a%2Fb", "#a%2Fb"):
             with self.subTest(dest=dest):
                 self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.check(REQ), [])
@@ -992,6 +988,9 @@ class HtmlTest(unittest.TestCase):
         """run_html が書き出さない書式の誤りのある文書でも、Renderer が作る HTML を返す。"""
         return specdoc.Renderer(specdoc.Workspace().load(self.repo.path(rel))).render()
 
+    def meta_of(self, rel):
+        return self.render(rel).split('<dl class="meta">', 1)[1].split("</dl>", 1)[0]
+
     def test_output_is_deterministic(self):
         first = self.render(DESIGN)
         self.assertEqual(self.render(DESIGN), first)
@@ -1060,11 +1059,11 @@ class HtmlTest(unittest.TestCase):
     def test_no_output_on_document_name_case(self):
         # 名前の大文字・小文字だけが違う文書は書き出さず、ほかの文書は書き出し続ける
         self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
-        typed = self.repo.path("specs/13-other/design.md")
-        expected = "パスの大文字・小文字が実際の名前と違う" if typed.is_file() else "ファイルが無い"
+        rel = "specs/13-other/design.md"
+        typed = self.repo.path(rel)
         written, errors, notes = specdoc.run_html([str(self.repo.path(REQ)), str(typed)])
         self.assertEqual(written, [self.repo.path(f"{SPEC}/requirements.html")])
-        self.assertEqual(errors, [(typed, 1, expected)])
+        self.assertEqual(errors, [(typed, 1, self.repo.case_error(rel))])
         self.assertEqual(notes, [])
         self.assertFalse(self.repo.path("specs/13-other/Design.html").exists())
 
@@ -1103,9 +1102,6 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual((written, errors), ([self.repo.path(f"{SPEC}/design.html")], []))
         self.assertEqual(notes, [(self.repo.path(DESIGN), line, "警告: リンク先が無い: mocks/detail.html")])
         self.assertEqual(self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"])
-
-    def meta_of(self, rel):
-        return self.render(rel).split('<dl class="meta">', 1)[1].split("</dl>", 1)[0]
 
     def test_meta_path_outside_the_repository_is_not_linked(self):
         bad = "../outside/design.md@0123456789ab"
@@ -1332,11 +1328,11 @@ class CliTest(unittest.TestCase):
         # 大文字・小文字を区別しないファイルシステムでも、名前の違いを誤りにする
         self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
         typed = "specs/proj-12-invoice/requirements.md"
-        cases.append((typed, "パスの大文字・小文字が実際の名前と違う" if self.repo.path(typed).is_file() else "ファイルが無い"))
+        cases.append((typed, self.repo.case_error(typed)))
         # ファイルの名前だけが違うときも同じ
         self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
         named = "specs/13-other/design.md"
-        cases.append((named, "パスの大文字・小文字が実際の名前と違う" if self.repo.path(named).is_file() else "ファイルが無い"))
+        cases.append((named, self.repo.case_error(named)))
         for arg, expected in cases:
             with self.subTest(arg=arg):
                 self.assertEqual(self.run_main("hash", arg), (1, f"{arg}:1: {expected}\n"))
