@@ -501,6 +501,15 @@ class CheckTest(unittest.TestCase):
         self.assertIn(f"上流のファイルが無い: {REQ}", messages)
         self.assertIn(f"要件定義書が無い: {REQ}", messages)
 
+    def test_upstream_name_case_must_match(self):
+        # 大文字・小文字を区別しない macOS でも、Linux と同じく名前の違う上流は無いとみなす
+        text = self.repo.read(REQ)
+        self.repo.path(REQ).unlink()
+        self.repo.write(f"{SPEC}/Requirements.md", text)
+        messages = self.repo.messages(DESIGN)
+        self.assertIn(f"上流のファイルが無い: {REQ}", messages)
+        self.assertIn(f"要件定義書が無い: {REQ}", messages)
+
     def test_upstream_hash_ignores_crlf_checkout(self):
         # Windows の git が CRLF で取り出しても、上流の hash は合う
         self.repo.write(REQ, self.repo.read(REQ).replace("\n", "\r\n"))
@@ -524,6 +533,16 @@ class CheckTest(unittest.TestCase):
     def test_document_path_case_must_match(self):
         self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
         typed = "specs/proj-12-invoice/requirements.md"
+        if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
+            expected = "パスの大文字・小文字が実際の名前と違う"
+        else:
+            expected = "ファイルが無い"
+        self.assertEqual(self.repo.messages(typed), [expected])
+
+    def test_document_name_case_must_match(self):
+        # ファイルの名前だけが違うときも、トレースバックにせず 1 行のエラーにする
+        self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
+        typed = "specs/13-other/design.md"
         if self.repo.path(typed).is_file():  # 大文字・小文字を区別しないファイルシステム
             expected = "パスの大文字・小文字が実際の名前と違う"
         else:
@@ -956,6 +975,17 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["specs/<id>-<slug>/ の下に置く"])
 
+    def test_no_output_on_document_name_case(self):
+        # 名前の大文字・小文字だけが違う文書は書き出さず、ほかの文書は書き出し続ける
+        self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
+        typed = self.repo.path("specs/13-other/design.md")
+        expected = "パスの大文字・小文字が実際の名前と違う" if typed.is_file() else "ファイルが無い"
+        written, errors, notes = specdoc.run_html([str(self.repo.path(REQ)), str(typed)])
+        self.assertEqual(written, [self.repo.path(f"{SPEC}/requirements.html")])
+        self.assertEqual(errors, [(typed, 1, expected)])
+        self.assertEqual(notes, [])
+        self.assertFalse(self.repo.path("specs/13-other/Design.html").exists())
+
     def test_renderer_links_only_allowed_destinations(self):
         denied = ("javascript:alert%281%29", "JAVASCRIPT:x", "data:text/html,x", "vbscript:x", "//evil.example.com/x", "/etc/passwd", "HTTPS://example.com")
         for dest in denied:
@@ -1165,6 +1195,10 @@ class CliTest(unittest.TestCase):
         self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
         typed = "specs/proj-12-invoice/requirements.md"
         cases.append((typed, "パスの大文字・小文字が実際の名前と違う" if self.repo.path(typed).is_file() else "ファイルが無い"))
+        # ファイルの名前だけが違うときも同じ
+        self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
+        named = "specs/13-other/design.md"
+        cases.append((named, "パスの大文字・小文字が実際の名前と違う" if self.repo.path(named).is_file() else "ファイルが無い"))
         for arg, expected in cases:
             with self.subTest(arg=arg):
                 self.assertEqual(self.run_main("hash", arg), (1, f"{arg}:1: {expected}\n"))

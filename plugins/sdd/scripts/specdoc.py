@@ -193,6 +193,14 @@ def exact_kind(base, parts):
     return kind
 
 
+def same_name(path):
+    """path がファイルで、最後の名前が大文字・小文字まで実際の名前と一致すれば真。一覧を読めないときは真にし、開いて「読めない」と知らせる。"""
+    try:
+        return exact_kind(str(path.parent), [path.name]) == "file"
+    except OSError:
+        return True
+
+
 def bad_repo_path(rel):
     """html で上流と親をリンクにするとき、リポジトリルートからの相対パスの形が誤っていれば真。
 
@@ -1196,11 +1204,7 @@ class Workspace:
     def load(self, path):
         key = str(path)
         if key not in self.docs:
-            try:
-                found = exact_kind(str(path.parent), [path.name]) == "file"
-            except OSError:
-                found = True  # 開いて「読めない」と知らせる
-            self.docs[key] = Doc(path, self) if found else None
+            self.docs[key] = Doc(path, self) if same_name(path) else None
         return self.docs[key]
 
 
@@ -1548,6 +1552,9 @@ def expand(args):
             errors.append((path, 1, "ファイルを指定する"))
         elif path.name not in DOC_FILES:
             errors.append((path, 1, f"型の文書（{DOC_LIST}）ではない"))
+        elif not same_name(path):
+            # stat は大文字・小文字を区別しないファイルシステムで違う名前も見つけるが、load は無いとみなす
+            errors.append((path, 1, "パスの大文字・小文字が実際の名前と違う"))
         elif path not in files:
             files.append(path)
     return files, errors
