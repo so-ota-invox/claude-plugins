@@ -618,8 +618,8 @@ class Parser:
 class Template:
     """formats/ の雛形。見出しの構造と、分割したとき親だけに置く見出しを持つ。"""
 
-    def __init__(self, kind):
-        blocks = Parser((FORMATS_DIR / f"{kind}.md").read_bytes().decode("utf-8")).blocks
+    def __init__(self, doc_type):
+        blocks = Parser((FORMATS_DIR / f"{doc_type}.md").read_bytes().decode("utf-8")).blocks
         self.title = blocks[0].text
         self.headings = [(b.level, b.text) for b in blocks if b.kind == "heading" and b.level >= 2]
         self.parent_only = set()
@@ -701,7 +701,7 @@ class Doc:
     def __init__(self, path, ws):
         self.path = path
         self.ws = ws
-        self.kind = path.stem
+        self.doc_type = path.stem
         self.root = None
         self.spec_dir = None
         self.child = None
@@ -759,21 +759,21 @@ class Doc:
         entry = self.section.get(key)
         return entry[1].line if entry else 1
 
-    def spec_path(self, kind, child=None):
+    def spec_path(self, doc_type, child=None):
         """同じ機能の文書の、リポジトリルートからの相対パス（/ 区切り）を返す。"""
         rel = self.spec_dir.relative_to(self.root).as_posix()
-        return f"{rel}/{child}/{kind}.md" if child else f"{rel}/{kind}.md"
+        return f"{rel}/{child}/{doc_type}.md" if child else f"{rel}/{doc_type}.md"
 
-    def spec_doc(self, kind, child=None):
-        return self.ws.load(self.root.joinpath(*self.spec_path(kind, child).split("/")))
+    def spec_doc(self, doc_type, child=None):
+        return self.ws.load(self.root.joinpath(*self.spec_path(doc_type, child).split("/")))
 
     def can_refer(self, ident):
         """番号を定義する文書が、この文書か上流の文書なら真。下流と別の子の番号は参照しない。"""
         typ, child = split_id(ident)
         if typ in ("R", "Q"):
             return True
-        kind = "design" if typ == "AC" else "plan"
-        return STAGES.index(kind) <= STAGES.index(self.kind) and child in (None, self.child)
+        doc_type = "design" if typ == "AC" else "plan"
+        return STAGES.index(doc_type) <= STAGES.index(self.doc_type) and child in (None, self.child)
 
     def resolve(self, ident):
         """番号を定義している文書を返す。無ければ None。下流と別の子の文書は開かない。"""
@@ -833,7 +833,7 @@ class Doc:
             self.add_error(1, "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）")
             return
         if len(parts) == 3:
-            if self.kind == "requirements":
+            if self.doc_type == "requirements":
                 self.add_error(1, "要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く")
                 return
             if not CHILD_RE.match(parts[1]) or parts[1] in RESERVED_CHILD_NAMES:
@@ -861,14 +861,14 @@ class Doc:
 
     def analyze(self):
         err = self.add_error
-        tpl = self.ws.template(self.kind)
+        tpl = self.ws.template(self.doc_type)
         self.index_blocks(err)
         self.check_title(tpl, err)
         self.read_meta(err)
         self.check_headings(tpl, err)
         self.read_defs(err)
         self.collect_refs()
-        if self.kind == "design":
+        if self.doc_type == "design":
             if self.child is None:
                 self.read_split(err)
                 self.read_tables(err)
@@ -959,7 +959,7 @@ class Doc:
             err(legend[0].line, "凡例の文言が違う。common.md の文言をそのまま書く")
         parent = self.meta.get("親")
         if self.child:
-            expected = self.spec_path(self.kind)
+            expected = self.spec_path(self.doc_type)
             if parent is None:
                 err(blk.line, f"子の文書には親を書く: {expected}")
             elif parent[1] != expected:
@@ -967,7 +967,7 @@ class Doc:
         elif parent is not None:
             err(parent[0].line, "親は子の文書だけに書く")
         upstream = self.meta.get("上流")
-        if self.kind == "requirements":
+        if self.doc_type == "requirements":
             if upstream is not None:
                 err(upstream[0].line, "要件定義書には上流を書かない")
         elif upstream is None:
@@ -1012,7 +1012,7 @@ class Doc:
                 err(b.line, f"本文が空: {'#' * b.level} {b.text}。書く内容が無ければ「なし」と書く")
 
     def read_defs(self, err):
-        places = DEF_SECTIONS[self.kind]
+        places = DEF_SECTIONS[self.doc_type]
         for key, _, body in self.sections:
             want = places.get(key)
             if want is None:
@@ -1057,12 +1057,12 @@ class Doc:
         elif typ == "Q":
             stage = fields.get("解決する工程")
             if stage and stage[1]:
-                allowed = STAGES[STAGES.index(self.kind):]
+                allowed = STAGES[STAGES.index(self.doc_type):]
                 if stage[1] in allowed:
                     self.q_stage[ident] = (item.line, stage[1])
                 elif stage[1] in STAGES:
                     # 済んだ工程に関わる問いは、上流の文書の要確認にする
-                    err(stage[0].line, f"{self.kind}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか")
+                    err(stage[0].line, f"{self.doc_type}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか")
                 else:
                     err(stage[0].line, f"解決する工程は {MSG_SEP.join(STAGES)} のどれか")
 
@@ -1210,10 +1210,10 @@ class Workspace:
         self.docs = {}
         self.templates = {}
 
-    def template(self, kind):
-        if kind not in self.templates:
-            self.templates[kind] = Template(kind)
-        return self.templates[kind]
+    def template(self, doc_type):
+        if doc_type not in self.templates:
+            self.templates[doc_type] = Template(doc_type)
+        return self.templates[doc_type]
 
     def load(self, path):
         key = str(path)
@@ -1226,7 +1226,7 @@ class Workspace:
 
 
 def required_upstreams(doc):
-    if doc.kind == "design":
+    if doc.doc_type == "design":
         req = [doc.spec_path("requirements")]
         if doc.child:
             req.append(doc.spec_path("design"))
@@ -1239,7 +1239,7 @@ def required_upstreams(doc):
 
 def check_upstream(doc, err):
     entry = doc.meta.get("上流")
-    if doc.kind == "requirements" or entry is None:
+    if doc.doc_type == "requirements" or entry is None:
         return
     item = entry[0]
     # 上流は同じ機能の型の文書に限る。パスは specs/ の下の名前の規則で英数字になるので、字面で比べる
@@ -1288,7 +1288,7 @@ def listed_in_parent(doc, err):
 
 
 def check_coverage(doc, err):
-    if doc.kind == "design":
+    if doc.doc_type == "design":
         if doc.child is None:
             req = doc.spec_doc("requirements")
             if req is None:
@@ -1308,7 +1308,7 @@ def check_coverage(doc, err):
         for r in wanted:
             if r not in covered:
                 err(at, f"受ける AC の無い R: {r}{note}")
-    elif doc.kind == "plan":
+    elif doc.doc_type == "plan":
         if doc.child and listed_in_parent(doc, err) is None:
             return
         design = doc.spec_doc("design", doc.child)
@@ -1340,7 +1340,7 @@ def check_gate(doc, gate, require_approved, err):
     for q, (line, stage) in doc.q_stage.items():
         if gate and STAGES.index(stage) <= STAGES.index(gate):
             err(line, f"解決する工程が {stage} の要確認が残っている: {q}")
-        elif doc.state == "approved" and stage == doc.kind:
+        elif doc.state == "approved" and stage == doc.doc_type:
             err(line, f"approved の文書に、解決する工程が {stage} の要確認が残っている: {q}")
     if require_approved and doc.state != "approved":
         entry = doc.meta.get("状態")
@@ -1366,7 +1366,7 @@ def check_doc(doc, gate=None, require_approved=False):
             err(line, f"定義の無い番号: {ident}")
     check_coverage(doc, err)
     check_upstream(doc, err)
-    if doc.kind == "design":
+    if doc.doc_type == "design":
         check_data_use(doc, err)
     check_gate(doc, gate, require_approved, err)
     return errors

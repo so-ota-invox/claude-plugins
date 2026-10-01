@@ -71,10 +71,10 @@ def meta(state="approved", parent=None, upstream=None):
     return lines
 
 
-def build_doc(kind, meta_lines, bodies=None, child=False):
+def build_doc(doc_type, meta_lines, bodies=None, child=False):
     """型の見出しをすべて並べた文書を作る。本文を渡さない見出しは「なし」にする。"""
     bodies = bodies or {}
-    tpl = specdoc.Template(kind)
+    tpl = specdoc.Template(doc_type)
     lines = [f"# {tpl.title}: 請求書の一括発行", ""] + list(meta_lines) + [""]
     heads = tpl.expected(child)
     for n, (level, text) in enumerate(heads):
@@ -188,9 +188,9 @@ class TemplateTest(unittest.TestCase):
         self.assertIn("- 凡例: " + specdoc.LEGEND + "\n", text)
 
     def test_heading_texts_are_unique_and_parent_only_names_exist(self):
-        for kind in ("requirements", "design", "plan"):
-            with self.subTest(kind=kind):
-                tpl = specdoc.Template(kind)
+        for doc_type in ("requirements", "design", "plan"):
+            with self.subTest(doc_type=doc_type):
+                tpl = specdoc.Template(doc_type)
                 texts = [text for _, text in tpl.headings]
                 self.assertEqual(len(texts), len(set(texts)))
                 self.assertLessEqual(tpl.parent_only, set(texts))
@@ -206,9 +206,9 @@ class TemplateTest(unittest.TestCase):
         self.assertIn("受け入れ基準", texts)
 
     def test_research_scope_closes_design_and_plan(self):
-        for kind in ("design", "plan"):
-            with self.subTest(kind=kind):
-                self.assertEqual(specdoc.Template(kind).headings[-1], (2, "調査範囲"))
+        for doc_type in ("design", "plan"):
+            with self.subTest(doc_type=doc_type):
+                self.assertEqual(specdoc.Template(doc_type).headings[-1], (2, "調査範囲"))
         self.assertNotIn("調査範囲", [text for _, text in specdoc.Template("requirements").headings])
 
 
