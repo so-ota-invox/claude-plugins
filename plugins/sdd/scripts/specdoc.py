@@ -24,7 +24,6 @@ from urllib.parse import unquote
 
 FORMATS_DIR = Path(__file__).resolve().parent.parent / "formats"
 DOC_FILES = ("requirements.md", "design.md", "plan.md")
-DOC_LIST = "・".join(DOC_FILES)
 LEGEND = (
     "R = 要件、AC = 受け入れ基準、S = シナリオ、Q = 要確認。"
     "子の番号は間に子の名前が入る（例: AC-billing-001）"
@@ -39,6 +38,9 @@ DATA_OPS = ("書く", "読む")
 # 値が無いことを表す語と、値を並べるときの区切り
 NONE_VALUE = "なし"
 LIST_SEP = "、"
+# メッセージの中で、項目や選べる値を並べるときの区切り
+MSG_SEP = "・"
+DOC_LIST = MSG_SEP.join(DOC_FILES)
 SPECS_DIR = "specs"
 RESERVED_CHILD_NAMES = ("mocks", SPECS_DIR)
 PARENT_ONLY_KEY = "分割したとき親だけに置く見出し"
@@ -417,7 +419,7 @@ class Item:
 
 class Block:
     def __init__(self, kind, line):
-        self.kind = kind  # heading / list / table / code / para
+        self.kind = kind  # heading / bullets / table / fence / para
         self.line = line
         self.level = 0
         self.text = ""
@@ -514,7 +516,7 @@ class Parser:
         return i + 1
 
     def bullets(self, i):
-        blk = Block("list", i + 1)
+        blk = Block("bullets", i + 1)
         while i < len(self.lines):
             raw = self.lines[i].rstrip()
             m = LIST_RE.match(raw) if raw else None
@@ -570,7 +572,7 @@ class Parser:
 
     def fence(self, i):
         ln = i + 1
-        blk = Block("code", ln)
+        blk = Block("fence", ln)
         blk.lang = self.lines[i].rstrip()[3:].strip()
         if not blk.lang:
             self.error(ln, "コードブロックに言語名を書く")
@@ -617,13 +619,11 @@ class Template:
     """formats/ の雛形。見出しの構造と、分割したとき親だけに置く見出しを持つ。"""
 
     def __init__(self, kind):
-        parser = Parser((FORMATS_DIR / f"{kind}.md").read_bytes().decode("utf-8"))
-        self.errors = parser.errors
-        blocks = parser.blocks
+        blocks = Parser((FORMATS_DIR / f"{kind}.md").read_bytes().decode("utf-8")).blocks
         self.title = blocks[0].text
         self.headings = [(b.level, b.text) for b in blocks if b.kind == "heading" and b.level >= 2]
         self.parent_only = set()
-        if len(blocks) > 1 and blocks[1].kind == "list":
+        if len(blocks) > 1 and blocks[1].kind == "bullets":
             for item in blocks[1].items:
                 m = KV_RE.match(item.text)
                 if m and m.group(1) == PARENT_ONLY_KEY and m.group(2) and m.group(2) != NONE_VALUE:
@@ -651,7 +651,7 @@ def read_fields(item, label, spec, err):
         m = KV_RE.match(c.text)
         if not m or m.group(1) not in spec:
             if spec:
-                err(c.line, f"{label} の下に書けるのは {'・'.join(spec)}")
+                err(c.line, f"{label} の下に書けるのは {MSG_SEP.join(spec)}")
             else:
                 err(c.line, f"{label} の下に箇条を書かない")
             continue
@@ -751,10 +751,6 @@ class Doc:
         if self.root is not None:
             self.analyze()
 
-    @property
-    def spec_rel(self):
-        return self.spec_dir.relative_to(self.root).as_posix()
-
     def body(self, key):
         entry = self.section.get(key)
         return entry[2] if entry else None
@@ -763,9 +759,13 @@ class Doc:
         entry = self.section.get(key)
         return entry[1].line if entry else 1
 
+    def spec_path(self, kind, child=None):
+        """同じ機能の文書の、リポジトリルートからの相対パス（/ 区切り）を返す。"""
+        rel = self.spec_dir.relative_to(self.root).as_posix()
+        return f"{rel}/{child}/{kind}.md" if child else f"{rel}/{kind}.md"
+
     def spec_doc(self, kind, child=None):
-        path = self.spec_dir / child / f"{kind}.md" if child else self.spec_dir / f"{kind}.md"
-        return self.ws.load(path)
+        return self.ws.load(self.root.joinpath(*self.spec_path(kind, child).split("/")))
 
     def can_refer(self, ident):
         """番号を定義する文書が、この文書か上流の文書なら真。下流と別の子の番号は参照しない。"""
@@ -809,7 +809,7 @@ class Doc:
                 for ln, cells in b.rows:
                     for _, inl in cells:
                         yield ln, inl, None, b
-            elif b.kind == "list":
+            elif b.kind == "bullets":
                 for item in b.items:
                     for it in [item] + item.children:
                         yield it.line, it.inline, it, b
@@ -875,7 +875,7 @@ class Doc:
         if blocks and blocks[0].kind == "heading" and blocks[0].level == 1:
             self.title_block = blocks[0]
             k = 1
-        if k < len(blocks) and blocks[k].kind == "list":
+        if k < len(blocks) and blocks[k].kind == "bullets":
             self.meta_block = blocks[k]
             k += 1
         else:
@@ -915,14 +915,14 @@ class Doc:
                 continue
             key, value = m.group(1), (m.group(2) or "").strip()
             if key not in META_KEYS:
-                err(item.line, f"管理情報に使えない項目: {key}（使えるのは {'・'.join(META_KEYS)}）")
+                err(item.line, f"管理情報に使えない項目: {key}（使えるのは {MSG_SEP.join(META_KEYS)}）")
                 continue
             if key in self.meta:
                 err(item.line, f"管理情報の項目が重なっている: {key}")
                 continue
             pos = META_KEYS.index(key)
             if pos < last:
-                err(item.line, f"管理情報の順序が違う（{'・'.join(META_KEYS)} の順）")
+                err(item.line, f"管理情報の順序が違う（{MSG_SEP.join(META_KEYS)} の順）")
             last = max(last, pos)
             self.meta[key] = (item, value)
             if item.children and key != "上流":
@@ -942,7 +942,7 @@ class Doc:
             if state[1] in STATES:
                 self.state = state[1]
             else:
-                err(state[0].line, f"状態は {'・'.join(STATES)} のどれか")
+                err(state[0].line, f"状態は {MSG_SEP.join(STATES)} のどれか")
         approver = self.meta.get("承認者")
         if self.state == "approved" and (approver is None or not approver[1]):
             err(approver[0].line if approver else state[0].line, "approved のときは承認者を書く")
@@ -954,7 +954,7 @@ class Doc:
             err(legend[0].line, "凡例の文言が違う。common.md の文言をそのまま書く")
         parent = self.meta.get("親")
         if self.child:
-            expected = f"{self.spec_rel}/{self.kind}.md"
+            expected = self.spec_path(self.kind)
             if parent is None:
                 err(blk.line, f"子の文書には親を書く: {expected}")
             elif parent[1] != expected:
@@ -1013,7 +1013,7 @@ class Doc:
             if want is None:
                 continue
             for b in body:
-                if b.kind != "list":
+                if b.kind != "bullets":
                     continue
                 for item in b.items:
                     m = DEF_RE.match(item.text)
@@ -1048,7 +1048,7 @@ class Doc:
                 self.s_acs[ident] = (field[0].line, parse_ids(field, "受け入れ基準", "AC", err))
             scenario_kind = fields.get("種別")
             if scenario_kind and scenario_kind[1] and scenario_kind[1] not in SCENARIO_KINDS:
-                err(scenario_kind[0].line, f"種別は {'・'.join(SCENARIO_KINDS)} のどれか")
+                err(scenario_kind[0].line, f"種別は {MSG_SEP.join(SCENARIO_KINDS)} のどれか")
         elif typ == "Q":
             stage = fields.get("解決する工程")
             if stage and stage[1]:
@@ -1057,9 +1057,9 @@ class Doc:
                     self.q_stage[ident] = (item.line, stage[1])
                 elif stage[1] in STAGES:
                     # 済んだ工程に関わる問いは、上流の文書の要確認にする
-                    err(stage[0].line, f"{self.kind}.md の解決する工程は {'・'.join(allowed)} のどれか")
+                    err(stage[0].line, f"{self.kind}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか")
                 else:
-                    err(stage[0].line, f"解決する工程は {'・'.join(STAGES)} のどれか")
+                    err(stage[0].line, f"解決する工程は {MSG_SEP.join(STAGES)} のどれか")
 
     def collect_refs(self):
         for line, tokens, item, blk in self.inlines():
@@ -1076,7 +1076,7 @@ class Doc:
     def read_split(self, err):
         self.split = {}
         body = self.body(SPLIT_SECTION) or []
-        lists = [b for b in body if b.kind == "list"]
+        lists = [b for b in body if b.kind == "bullets"]
         if not lists:
             paras = [b for b in body if b.kind == "para"]
             text = "".join(t for _, t, _ in paras[0].lines) if paras else ""
@@ -1138,22 +1138,22 @@ class Doc:
                     continue
                 cols.add(col)
                 if cells[diff_col][0] not in DIFF_KINDS:
-                    err(ln, f"差分は {'・'.join(DIFF_KINDS)} のどれか")
+                    err(ln, f"差分は {MSG_SEP.join(DIFF_KINDS)} のどれか")
             self.tables[name] = cols
 
     def read_data_use(self, err):
         for b in self.body(DATA_USE_SECTION) or []:
-            if b.kind != "list":
+            if b.kind != "bullets":
                 continue
             for item in b.items:
                 if not item.children:
-                    err(item.line, f"処理の下に {'・'.join(DATA_OPS)} の箇条を 1 つ以上書く")
+                    err(item.line, f"処理の下に {MSG_SEP.join(DATA_OPS)} の箇条を 1 つ以上書く")
                     continue
                 seen = set()
                 for c in item.children:
                     m = KV_RE.match(c.text)
                     if not m or m.group(1) not in DATA_OPS:
-                        err(c.line, f"処理の下に書けるのは {'・'.join(DATA_OPS)}")
+                        err(c.line, f"処理の下に書けるのは {MSG_SEP.join(DATA_OPS)}")
                         continue
                     if m.group(1) in seen:
                         err(c.line, f"処理の下の項目が重なっている: {m.group(1)}")
@@ -1219,15 +1219,14 @@ class Workspace:
 
 
 def required_upstreams(doc):
-    s = doc.spec_rel
     if doc.kind == "design":
-        req = [f"{s}/requirements.md"]
+        req = [doc.spec_path("requirements")]
         if doc.child:
-            req.append(f"{s}/design.md")
+            req.append(doc.spec_path("design"))
     else:
-        req = [f"{s}/{doc.child}/design.md" if doc.child else f"{s}/design.md"]
+        req = [doc.spec_path("design", doc.child)]
         if doc.child:
-            req.append(f"{s}/plan.md")
+            req.append(doc.spec_path("plan"))
     return req
 
 
@@ -1245,7 +1244,7 @@ def check_upstream(doc, err):
             continue
         rel, short = m.group(1), m.group(2)
         if rel not in required:
-            err(c.line, f"上流に書けるのは {'・'.join(required)} だけ: {rel}")
+            err(c.line, f"上流に書けるのは {MSG_SEP.join(required)} だけ: {rel}")
             continue
         if rel in listed:
             err(c.line, f"上流が重なっている: {rel}")
@@ -1270,10 +1269,10 @@ def check_upstream(doc, err):
 def listed_in_parent(doc, err):
     top = doc.spec_doc("design")
     if top is None:
-        err(1, f"親の設計書が無い: {doc.spec_rel}/design.md")
+        err(1, f"親の設計書が無い: {doc.spec_path('design')}")
         return None
     if top.read_error is not None:
-        err(1, f"親の設計書 {doc.spec_rel}/design.md を読めない: {top.read_error}")
+        err(1, f"親の設計書 {doc.spec_path('design')} を読めない: {top.read_error}")
         return None
     if not top.split or doc.child not in top.split:
         err(1, f"親の設計書の「サブ機能分割」に無い子: {doc.child}")
@@ -1286,7 +1285,7 @@ def check_coverage(doc, err):
         if doc.child is None:
             req = doc.spec_doc("requirements")
             if req is None:
-                err(1, f"要件定義書が無い: {doc.spec_rel}/requirements.md")
+                err(1, f"要件定義書が無い: {doc.spec_path('requirements')}")
                 return
             assigned = {r for reqs in (doc.split or {}).values() for r in reqs}
             wanted = [r for r in req.defs if split_id(r)[0] == "R" and r not in assigned]
@@ -1307,7 +1306,7 @@ def check_coverage(doc, err):
             return
         design = doc.spec_doc("design", doc.child)
         if design is None:
-            err(1, f"設計書が無い: {doc.path.with_name('design.md').relative_to(doc.root).as_posix()}")
+            err(1, f"設計書が無い: {doc.spec_path('design', doc.child)}")
             return
         covered = set()
         for line, acs in doc.s_acs.values():
@@ -1421,18 +1420,18 @@ class Renderer:
                 out.append(f"<h{b.level}>{self.inline(b.inline)}</h{b.level}>")
             elif b.kind == "para":
                 out.append("<p>" + "\n".join(self.inline(inl) for _, _, inl in b.lines) + "</p>")
-            elif b.kind == "list":
+            elif b.kind == "bullets":
                 out.extend(self.bullets(b.items))
             elif b.kind == "table":
                 out.extend(self.table(b))
-            elif b.kind == "code":
+            elif b.kind == "fence":
                 code = esc("\n".join(b.code))
                 if b.lang == "mermaid":
                     out.append(f'<pre class="mermaid">{code}</pre>')
                 else:
                     out.append(f'<pre><code class="language-{esc(b.lang)}">{code}</code></pre>')
         out.append("</main>")
-        if any(b.kind == "code" and b.lang == "mermaid" for b in doc.blocks):
+        if any(b.kind == "fence" and b.lang == "mermaid" for b in doc.blocks):
             out.append(f'<script src="{MERMAID_URL}" integrity="{MERMAID_INTEGRITY}" crossorigin="anonymous"></script>')
             out.append("<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>")
         out.append("</body>")
