@@ -1604,6 +1604,10 @@ def run_html(args):
             errors.append((path, 1, f"{out.name} を書けない: {e.strerror or e}"))
             remove_stale_html(path, out, errors, notes)
             continue
+        except BaseException:
+            # Ctrl-C などで止めたときも、書きかけの HTML を残さない
+            remove_stale_html(path, out, errors, notes)
+            raise
         written.append(out)
     return written, errors, notes
 

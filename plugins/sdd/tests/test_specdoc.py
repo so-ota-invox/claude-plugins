@@ -1139,6 +1139,21 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
+    def test_interrupted_html_is_removed(self):
+        # Ctrl-C で止めたときも書きかけを残さず、KeyboardInterrupt はそのまま送る
+        self.render(REQ)
+        path = self.repo.path(REQ)
+
+        def write_half(out, data):
+            with open(out, "wb") as f:
+                f.write(data[: len(data) // 2])
+            raise KeyboardInterrupt
+
+        with mock.patch.object(Path, "write_bytes", write_half):
+            with self.assertRaises(KeyboardInterrupt):
+                specdoc.run_html([str(path)])
+        self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
+
 
 class CliTest(unittest.TestCase):
     def setUp(self):
