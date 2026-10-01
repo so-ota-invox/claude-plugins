@@ -1599,7 +1599,7 @@ def remove_stale_html(path, out, errors, notes):
         if stale:
             out.unlink()
     except OSError as e:
-        errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}"))
+        errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}。Markdown と食い違ったまま残るので、手で消す"))
     else:
         if stale:
             notes.append((path, 1, f"古い {out.name} を消した"))

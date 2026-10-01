@@ -1233,6 +1233,20 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
+    def test_stale_html_that_cannot_be_removed_asks_to_remove_by_hand(self):
+        self.render(REQ)
+        path = self.repo.path(REQ)
+        busy = OSError(errno.EBUSY, os.strerror(errno.EBUSY))
+        with mock.patch.object(specdoc, "write_output", side_effect=OSError(errno.ENOSPC, "No space left on device")):
+            with mock.patch.object(specdoc.Path, "unlink", side_effect=busy):
+                written, errors, notes = specdoc.run_html([str(path)])
+        self.assertEqual((written, notes), ([], []))
+        self.assertEqual([msg for _, _, msg in errors], [
+            "requirements.html を書けない: No space left on device",
+            f"古い requirements.html を消せない: {busy.strerror}。Markdown と食い違ったまま残るので、手で消す",
+        ])
+        self.assertTrue(self.repo.path(f"{SPEC}/requirements.html").is_file())
+
     def test_interrupted_html_is_removed(self):
         # Ctrl-C で止めたときも書きかけを残さず、KeyboardInterrupt はそのまま送る
         self.render(REQ)
