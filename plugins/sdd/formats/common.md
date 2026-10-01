@@ -141,7 +141,7 @@
 
 ## 指摘
 
-review は指摘を文書の隣の `<文書名>.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.review.md`）に 1 件 1 箇条で書き、review のたびに上書きする。指摘が無ければ「指摘なし」とだけ書く。
+review は指摘を文書の隣の指摘のファイル `<文書名>.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.review.md`）に 1 件 1 箇条で書き、review のたびに上書きする。途中で agent ごとの指摘を、同じ形で報告のファイル `<文書名>.<agent の名前>.review.md`（`specs/12-invoice/design.fact-checker.review.md` など）に書く。指摘が無ければ「指摘なし」とだけ書く。
 
 ```text
 - P1 specs/12-invoice/design.md:40: 問題。直し方
@@ -153,7 +153,7 @@ review は指摘を文書の隣の `<文書名>.review.md`（`specs/12-invoice/d
 - P2: 改善の提案。直すかは任意
 - 検証で誤りと見た P0 は消さず、下に `- 反証: …` を書いて残す。refine はこれを直さず、要確認にする
 
-指摘のファイル（review が途中で書く `<文書名>.<agent の名前>.review.md` も）は Git で管理しない。リポジトリの `.gitignore` に次を足す
+指摘のファイルと報告のファイルは Git で管理しない。リポジトリの `.gitignore` に次を足す
 
 ```gitignore
 specs/**/*.review.md

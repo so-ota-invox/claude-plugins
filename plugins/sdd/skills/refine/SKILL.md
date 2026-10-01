@@ -1,7 +1,7 @@
 ---
 name: refine
-description: sdd の文書 1 本を review し、指摘を反映して check を通す。P0 と P1 が無くなるまで、最大 2 往復くり返す。ほかの環境で review した指摘ファイルを渡すと、1 往復目にそれを使う。
-argument-hint: <文書のパス> [<指摘ファイル>]
+description: sdd の文書 1 本を review し、指摘を反映して check を通す。P0 と P1 が無くなるまで、最大 2 往復くり返す。ほかの環境で review した指摘のファイルを渡すと、1 往復目にそれを使う。
+argument-hint: <文書のパス> [<指摘のファイル>]
 ---
 
 # refine
@@ -14,22 +14,23 @@ argument-hint: <文書のパス> [<指摘ファイル>]
 
 次の 1 往復を、最大 2 往復くり返す。
 
-1. `python3 <plugin>/scripts/specdoc.py check <文書>` が通るまで直す
+1. `python3 <plugin>/scripts/specdoc.py check <文書>` が通るまで直す。文書を直しても消えないエラー（上流が approved でない、置き場が違うなど）や、直しても同じエラーが続くときは、エラーを示して止まる
 2. 指摘を用意する
-   - 1 往復目で指摘ファイルを渡されたときは、`finding-verifier` に指摘ファイルを渡し、今の文書で確かめ直させる。起動のしかたは `<plugin>/skills/review/SKILL.md` の「agent の起動」と同じ
+   - 1 往復目で指摘のファイルを渡されたときは、`finding-verifier` に指摘のファイルを渡し、今の文書で確かめ直させる。起動のしかたは `<plugin>/skills/review/SKILL.md` の「agent の起動」と同じ
    - それ以外は `<plugin>/skills/review/SKILL.md` の手順で review する
 3. `<文書名>.review.md` を読む。P0 も P1 も無ければ止める
 4. 反映する
    - P0 と P1 を直す
-   - 反証の付いた P0 と、直せない P0 は、要確認として文書に積む。解決する工程は、その文書の工程にする
+   - 反証の付いた P0 と、直せない P0 は、要確認として文書に積む。解決する工程は、その文書の工程にする。同じ問いがもう要確認にあれば積まない
    - P1 と P2 のうち人の判断が要るものは、要確認として文書に積む
    - P1 で直すかの判断が割れたら、直さずに理由を報告に書く
    - P2 は直すかを任意に決める
-5. check が通るまで直し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す
+5. 1 と同じく check を通し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す
 
 ## 報告
 
 - 回した往復の数
 - 直した指摘の件数
 - 直さなかった P1 とその理由、要確認にした指摘
-- 最後の `<文書名>.review.md` のパス
+- 2 往復で止めたときは、そのことと、最後の review に残っていた P0・P1 の件数
+- 最後の指摘のファイル `<文書名>.review.md` のパス

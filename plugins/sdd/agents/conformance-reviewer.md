@@ -32,6 +32,6 @@ check が照合すること（common.md の「check」）と、既存コード�
 
 ## 書くもの
 
-- 指摘を common.md の「指摘」の形で、文書の隣の `<文書名>.conformance-reviewer.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.conformance-reviewer.review.md`）に書く。あれば中身は使わず、全体を書き直す。前の指摘を残さない
+- 指摘を common.md の「指摘」の形で、報告のファイル `<文書名>.conformance-reviewer.review.md` に書く。あれば中身は使わず、全体を書き直す。前の指摘を残さない
 - 指摘が無ければ「指摘なし」とだけ書く
 - 返すのは P0・P1・P2 の件数と報告のパスだけ

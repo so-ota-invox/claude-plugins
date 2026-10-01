@@ -32,6 +32,6 @@ tools: Read, Glob, Grep, Write
 
 ## 書くもの
 
-- 指摘を common.md の「指摘」の形で、文書の隣の `<文書名>.fact-checker.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.fact-checker.review.md`）に書く。あれば中身は使わず、全体を書き直す。前の指摘を残さない。根拠には実物の `file:line` を書く
+- 指摘を common.md の「指摘」の形で、報告のファイル `<文書名>.fact-checker.review.md` に書く。あれば中身は使わず、全体を書き直す。前の指摘を残さない。根拠には実物の `file:line` を書く
 - 指摘が無ければ「指摘なし」とだけ書く
 - 返すのは P0・P1・P2 の件数と報告のパスだけ
