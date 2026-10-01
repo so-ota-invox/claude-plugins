@@ -330,10 +330,10 @@ class CheckTest(unittest.TestCase):
         cases = [
             ("- 著者: 山田\n- 状態: approved", "- 状態: approved\n- 著者: 山田", "管理情報の順序が違う（著者・状態・承認者・凡例・親・上流・元の文書 の順）"),
             ("- 承認者: 佐藤\n", "", "approved のときは承認者を書く"),
-            ("- 状態: approved", "- 状態: wip", "状態は draft か approved にする"),
+            ("- 状態: approved", "- 状態: wip", "状態は draft・approved のどれか"),
             ("（例: AC-billing-001）", "", "凡例の文言が違う。common.md の文言をそのまま書く"),
             ("- 承認者: 佐藤\n", "- 承認者: 佐藤\n- 担当: 鈴木\n", "管理情報に使えない項目: 担当（使えるのは 著者・状態・承認者・凡例・親・上流・元の文書）"),
-            ("- 著者: 山田\n", "", "管理情報に 著者 が無い"),
+            ("- 著者: 山田\n", "", "管理情報の項目が無い: 著者"),
             ("- 凡例:", "- 親: specs/12-invoice/requirements.md\n- 凡例:", "親は子の文書だけに書く"),
         ]
         original = self.repo.read(REQ)
@@ -409,7 +409,7 @@ class CheckTest(unittest.TestCase):
     def test_requirement_without_ac(self):
         acs = "- AC-001: 選んだ請求書が 60 秒以内にすべて発行済みになる\n  - 要件: R-001、R-003"
         self.repo.write_design(with_body(DESIGN_BODIES, 受け入れ基準=acs))
-        self.assertEqual(self.repo.messages(DESIGN), ["R-002 を受ける AC が無い"])
+        self.assertEqual(self.repo.messages(DESIGN), ["受ける AC の無い R: R-002"])
 
     def test_ac_may_receive_no_requirement(self):
         acs = DESIGN_BODIES["受け入れ基準"] + "\n- AC-003: 既存の単票発行は変わらない\n  - 要件: なし"
@@ -419,7 +419,11 @@ class CheckTest(unittest.TestCase):
     def test_ac_without_scenario(self):
         scenarios = PLAN_BODIES["シナリオ"].split("\n- S-002")[0]
         self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=scenarios))
-        self.assertEqual(self.repo.messages(PLAN), ["AC-002 を受ける S が無い"])
+        self.assertEqual(self.repo.messages(PLAN), ["受ける S の無い AC: AC-002"])
+
+    def test_plan_without_design(self):
+        self.repo.path(DESIGN).unlink()
+        self.assertIn(f"設計書が無い: {DESIGN}", self.repo.messages(PLAN))
 
     def test_scenario_fields(self):
         scenarios = (
@@ -430,14 +434,25 @@ class CheckTest(unittest.TestCase):
         self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=scenarios))
         messages = self.repo.messages(PLAN)
         self.assertIn("S-001 の下に書けるのは 受け入れ基準・種別・層・前提・操作・期待", messages)
-        self.assertIn("S-001 の下に 期待 が無い", messages)
+        self.assertIn("S-001 の下の項目が無い: 期待", messages)
         self.assertIn("種別は 正常・異常・境界 のどれか", messages)
+
+    def test_scenario_field_repeated_or_empty(self):
+        cases = [
+            ("  - 期待: 2 件が発行済みになる\n  - 期待: 一覧に出ない\n", "S-001 の下の項目が重なっている: 期待"),
+            ("  - 期待:\n", "S-001 の下の項目が空: 期待"),
+        ]
+        for new, expected in cases:
+            with self.subTest(expected=expected):
+                scenarios = PLAN_BODIES["シナリオ"].replace("  - 期待: 2 件が発行済みになる\n", new)
+                self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=scenarios))
+                self.assertEqual(self.repo.messages(PLAN), [expected])
 
     def test_question_fields(self):
         q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 解決する工程: 実装"
         self.repo.write_requirements(bodies=with_body(REQ_BODIES, 要確認=q))
         messages = self.repo.messages(REQ)
-        self.assertIn("Q-001 の下に 期限 が無い", messages)
+        self.assertIn("Q-001 の下の項目が無い: 期限", messages)
         self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
 
     def write_question(self, rel, stage, state="draft"):
@@ -479,7 +494,7 @@ class CheckTest(unittest.TestCase):
         self.repo.write(DESIGN, build_doc("design", meta(upstream=[]), DESIGN_BODIES))
         messages = self.repo.messages(DESIGN)
         self.assertIn("上流が空", messages)
-        self.assertIn(f"上流に {REQ} が無い", messages)
+        self.assertIn(f"上流に書いていない文書: {REQ}", messages)
 
     def test_upstream_paths(self):
         # 上流に書けるのは同じ機能の決まった型の文書だけ。在るファイルで hash が合っていても、ほかのパスは誤りにする
@@ -612,8 +627,9 @@ class CheckTest(unittest.TestCase):
         cases = [
             ("- 一括発行\n  - 書く: `invoices.total`", "テーブル定義に無いカラム: invoices.total"),
             ("- 一括発行\n  - 書く: invoices.status", "`テーブル.カラム` を「、」で区切って書く"),
-            ("- 一括発行\n  - 消す: `invoices.status`", "処理の下に書けるのは 書く と 読む"),
-            ("- 一括発行", "処理の下に `- 書く:` か `- 読む:` を書く"),
+            ("- 一括発行\n  - 消す: `invoices.status`", "処理の下に書けるのは 書く・読む"),
+            ("- 一括発行", "処理の下に 書く・読む の箇条を 1 つ以上書く"),
+            (DESIGN_BODIES["読み書きするデータ"] + "\n  - 読む: `customers.name`", "処理の下の項目が重なっている: 読む"),
         ]
         for body, expected in cases:
             with self.subTest(expected=expected):
@@ -789,7 +805,9 @@ class SplitTest(unittest.TestCase):
                 self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s.replace("AC-billing-001", ac)}, True))
                 messages = self.repo.messages(path)
                 self.assertIn(expected, messages)
-                self.assertIn("AC-billing-001 を受ける S が無い", messages)
+                self.assertIn("受ける S の無い AC: AC-billing-001", messages)
+        self.repo.path(self.child_path("billing")).unlink()
+        self.assertIn(f"設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
 
     def test_parent_plan_must_not_receive_child_ac(self):
         s = PLAN_BODIES["シナリオ"].split("\n- S-002")[0].replace("AC-001", "AC-billing-001")
@@ -827,7 +845,7 @@ class SplitTest(unittest.TestCase):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")
         # 親は子のディレクトリを見ない。子の check が親の「サブ機能分割」と照合する
         self.assertEqual(self.repo.check(DESIGN), [])
-        self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に refund が無い"])
+        self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に無い子: refund"])
 
     def test_dependency_must_come_first(self):
         split = SPLIT.replace("依存: billing", "依存: refund")
@@ -837,13 +855,13 @@ class SplitTest(unittest.TestCase):
     def test_requirement_not_assigned_nor_covered(self):
         split = SPLIT.replace("要件: R-001、R-003", "要件: R-001")
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
-        self.assertEqual(self.repo.messages(DESIGN), ["R-003 を受ける AC が無い"])
+        self.assertEqual(self.repo.messages(DESIGN), ["受ける AC の無い R: R-003"])
 
     def test_child_must_cover_assigned_requirements(self):
         self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001")
         self.assertEqual(
             self.repo.messages(self.child_path("billing")),
-            ["R-003 を受ける AC が無い（親の「サブ機能分割」でこの子に割り当てている）"],
+            ["受ける AC の無い R: R-003（親の「サブ機能分割」でこの子に割り当てている）"],
         )
 
     def test_child_ids_carry_the_child_name(self):
@@ -859,7 +877,7 @@ class SplitTest(unittest.TestCase):
         self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", parent=None)
         self.assertIn(f"子の文書には親を書く: {DESIGN}", self.repo.messages(self.child_path("billing")))
         self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=[self.repo.ref(REQ)])
-        self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に {DESIGN} が無い"])
+        self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書いていない文書: {DESIGN}"])
         # 別の子の設計書は上流に書けない
         sibling = self.child_path("listing")
         up = [self.repo.ref(REQ), self.repo.ref(DESIGN), self.repo.ref(sibling)]

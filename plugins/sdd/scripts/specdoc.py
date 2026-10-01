@@ -656,14 +656,14 @@ def read_fields(item, label, spec, err):
             continue
         key, value = m.group(1), (m.group(2) or "").strip()
         if key in got:
-            err(c.line, f"{key} が重なっている")
+            err(c.line, f"{label} の下の項目が重なっている: {key}")
             continue
         if not value:
-            err(c.line, f"{key} が空")
+            err(c.line, f"{label} の下の項目が空: {key}")
         got[key] = (c, value)
     for key, required in spec.items():
         if required and key not in got:
-            err(item.line, f"{label} の下に {key} が無い")
+            err(item.line, f"{label} の下の項目が無い: {key}")
     return got
 
 
@@ -929,7 +929,7 @@ class Doc:
 
         def need(key):
             if key not in self.meta:
-                err(blk.line, f"管理情報に {key} が無い")
+                err(blk.line, f"管理情報の項目が無い: {key}")
                 return None
             return self.meta[key]
 
@@ -941,7 +941,7 @@ class Doc:
             if state[1] in STATES:
                 self.state = state[1]
             else:
-                err(state[0].line, "状態は draft か approved にする")
+                err(state[0].line, f"状態は {'・'.join(STATES)} のどれか")
         approver = self.meta.get("承認者")
         if self.state == "approved" and (approver is None or not approver[1]):
             err(approver[0].line if approver else state[0].line, "approved のときは承認者を書く")
@@ -1140,16 +1140,16 @@ class Doc:
                 continue
             for item in b.items:
                 if not item.children:
-                    err(item.line, "処理の下に `- 書く:` か `- 読む:` を書く")
+                    err(item.line, f"処理の下に {'・'.join(DATA_OPS)} の箇条を 1 つ以上書く")
                     continue
                 seen = set()
                 for c in item.children:
                     m = KV_RE.match(c.text)
                     if not m or m.group(1) not in DATA_OPS:
-                        err(c.line, "処理の下に書けるのは 書く と 読む")
+                        err(c.line, f"処理の下に書けるのは {'・'.join(DATA_OPS)}")
                         continue
                     if m.group(1) in seen:
-                        err(c.line, f"{m.group(1)} が重なっている")
+                        err(c.line, f"処理の下の項目が重なっている: {m.group(1)}")
                         continue
                     seen.add(m.group(1))
                     cols = read_columns(m.group(2) or "")
@@ -1257,7 +1257,7 @@ def check_upstream(doc, err):
             err(c.line, f"上流が approved でない: {rel}")
     for rel in required:
         if rel not in listed:
-            err(item.line, f"上流に {rel} が無い")
+            err(item.line, f"上流に書いていない文書: {rel}")
 
 
 def listed_in_parent(doc, err):
@@ -1269,7 +1269,7 @@ def listed_in_parent(doc, err):
         err(1, f"親の設計書 {doc.spec_rel}/design.md を読めない: {top.read_error}")
         return None
     if not top.split or doc.child not in top.split:
-        err(1, f"親の設計書の「サブ機能分割」に {doc.child} が無い")
+        err(1, f"親の設計書の「サブ機能分割」に無い子: {doc.child}")
         return None
     return top
 
@@ -1285,7 +1285,7 @@ def check_coverage(doc, err):
         at = doc.heading_line(AC_SECTION)
         for r in req.defs:
             if split_id(r)[0] == "R" and r not in covered and r not in assigned:
-                err(at, f"{r} を受ける AC が無い")
+                err(at, f"受ける AC の無い R: {r}")
     elif doc.kind == "design":
         top = listed_in_parent(doc, err)
         if top is None:
@@ -1294,13 +1294,13 @@ def check_coverage(doc, err):
         at = doc.heading_line(AC_SECTION)
         for r in top.split[doc.child]:
             if r not in covered:
-                err(at, f"{r} を受ける AC が無い（親の「サブ機能分割」でこの子に割り当てている）")
+                err(at, f"受ける AC の無い R: {r}（親の「サブ機能分割」でこの子に割り当てている）")
     elif doc.kind == "plan":
         if doc.child and listed_in_parent(doc, err) is None:
             return
         design = doc.spec_doc("design", doc.child)
         if design is None:
-            err(1, "同じディレクトリに design.md が無い")
+            err(1, f"設計書が無い: {doc.path.with_name('design.md').relative_to(doc.root).as_posix()}")
             return
         covered = set()
         for line, acs in doc.s_acs.values():
@@ -1311,7 +1311,7 @@ def check_coverage(doc, err):
         at = doc.heading_line(SCENARIO_SECTION)
         for ac in design.defs:
             if split_id(ac)[0] == "AC" and ac not in covered:
-                err(at, f"{ac} を受ける S が無い")
+                err(at, f"受ける S の無い AC: {ac}")
 
 
 def check_data_use(doc, err):
@@ -1630,6 +1630,8 @@ def display(path):
     return str(path) if rel.startswith("..") else rel
 
 
+# メッセージの形: 対象を添えるときは「説明: 対象」にする。OSError の理由を添えるときは対象を文の中に入れ、「説明: 理由」にする。
+# 直し方を示すときは「〜にする」「〜のどれか」のような文で書く
 def format_errors(errors):
     order = {}
     for path, _, _ in errors:
