@@ -8,7 +8,7 @@
 
 1. 渡されたものが、よそで書かれた同じ種類の文書なら、調査と起草の代わりに `importer` で型へ写し、3 へ進む
 2. SKILL.md に挙げた調査の agent を起動し、報告を読んで、`<plugin>/formats/common.md` と自分の型に従って文書を書く。調査の報告はファイルに残さない。報告を返さない調査の agent があれば、その名前を示して止まる
-3. `<plugin>/skills/refine/SKILL.md` の手順で refine する。check と HTML の書き出しは refine が行う。refine が止まったら、逆質問へ進まずに止まる
+3. `<plugin>/skills/refine/SKILL.md` の手順で refine する。check と HTML の書き出しは refine が行う。refine の終わり方が「エラーで止まった」なら、逆質問へ進まずに止まる。「2 往復に達した」ときは逆質問へ進む
 
 ## 逆質問
 
