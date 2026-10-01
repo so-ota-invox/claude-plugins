@@ -953,7 +953,11 @@ class HtmlTest(unittest.TestCase):
     def test_mermaid_script_only_when_needed(self):
         design = self.render(DESIGN)
         self.assertIn('<pre class="mermaid">erDiagram\n  customers ||--o{ invoices : has</pre>', design)
-        self.assertIn(f'<script src="{specdoc.MERMAID_URL}" integrity="{specdoc.MERMAID_INTEGRITY}"', design)
+        # SRI は crossorigin が無いとブラウザが照合できず、読み込みを止める
+        script = f'<script src="{specdoc.MERMAID_URL}" integrity="{specdoc.MERMAID_INTEGRITY}" crossorigin="anonymous"></script>'
+        self.assertIn(script, design)
+        # CDN を読めないときは初期化せず、コードのまま表示する
+        self.assertIn("<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>", design)
         self.assertNotIn("<script", self.render(REQ))
 
     def test_md_links_become_html_and_text_is_escaped(self):

@@ -67,8 +67,9 @@ ID_FIELDS = {
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
 MERMAID_VERSION = "12.0.0"  # 上げるときは、下の MERMAID_INTEGRITY も同じ版のファイルで計算し直す
-# MERMAID_URL のファイルの sha384 を base64 にした値。版を上げたら計算し直す:
-# curl -sL <MERMAID_URL> | openssl dgst -sha384 -binary | openssl base64 -A
+# MERMAID_URL のファイルの sha384 を base64 にした値。版を上げたら計算し直す（取得に失敗したら、空の内容の値を出さずに止まるよう、取得と計算を分ける）:
+# curl -fsSL -o mermaid.min.js <MERMAID_URL>
+# openssl dgst -sha384 -binary mermaid.min.js | openssl base64 -A
 MERMAID_INTEGRITY = "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
 
