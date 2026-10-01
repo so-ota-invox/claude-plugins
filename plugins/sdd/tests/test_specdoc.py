@@ -307,6 +307,19 @@ class CheckTest(unittest.TestCase):
             sorted([(REQ, at, cr), (REQ, lines.index("* x") + 1, "箇条書きは - で書く")]),
         )
 
+    def test_lone_cr_at_the_end_and_with_crlf(self):
+        cr = "改行は LF にする（CR だけで改行しない）"
+        text = self.repo.read(REQ)
+        # LF の無い CR で終わるときは、最後の行の 1 件だけ
+        body = text.rstrip("\n")
+        self.repo.write(REQ, body + "\r")
+        self.assertEqual(self.repo.check(REQ), [(REQ, len(body.split("\n")), cr)])
+        # CRLF と CR だけの改行が混ざるときは、両方を出す
+        mixed = text.replace("## 仮定\n\nなし", "## 仮定\n\nなし\rなし")
+        at = mixed.split("\n").index("なし\rなし") + 1
+        self.repo.write(REQ, mixed.replace("\n", "\r\n"))
+        self.assertEqual(sorted(self.repo.check(REQ)), sorted([(REQ, 1, "改行は LF にする"), (REQ, at, cr)]))
+
     def test_title_needs_subject(self):
         self.repo.replace(REQ, "# 要件定義書: 請求書の一括発行", "# 要件定義書")
         self.assertEqual(self.repo.check(REQ), [(REQ, 1, "1 行目は `# 要件定義書: 件名` の形で書く")])
@@ -570,6 +583,13 @@ class CheckTest(unittest.TestCase):
         # root は権限に関わらず一覧を読めるので、権限を外す代わりに例外を差し替え、root で実行しても確かめる
         with mock.patch.object(specdoc, "exact_kind", side_effect=PermissionError(errno.EACCES, "Permission denied")):
             self.assertEqual(self.repo.messages(REQ), ["パスを調べられない: Permission denied"])
+
+    def test_os_error_without_errno(self):
+        # errno の無い OSError は strerror が None なので、例外の文字列を出す
+        with mock.patch.object(specdoc, "exact_kind", side_effect=OSError("boom")):
+            self.assertEqual(self.repo.messages(REQ), ["パスを調べられない: boom"])
+        with mock.patch.object(Path, "read_bytes", side_effect=OSError("boom")):
+            self.assertEqual(self.repo.messages(REQ), ["読めない: boom"])
 
     def test_too_long_names_are_missing(self):
         # Python 3.12 までの Path.exists は ENAMETOOLONG で例外を送る
@@ -846,6 +866,12 @@ class SplitTest(unittest.TestCase):
         # 親は子のディレクトリを見ない。子の check が親の「サブ機能分割」と照合する
         self.assertEqual(self.repo.check(DESIGN), [])
         self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に無い子: refund"])
+
+    def test_child_of_unsplit_parent(self):
+        # 親が「分割しない。理由: …」のときは、どの子も「サブ機能分割」に無い
+        self.repo.write_design(DESIGN_BODIES)
+        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
+        self.assertEqual(self.repo.messages(self.child_path("billing")), ["親の設計書の「サブ機能分割」に無い子: billing"])
 
     def test_dependency_must_come_first(self):
         split = SPLIT.replace("依存: billing", "依存: refund")
@@ -1212,6 +1238,11 @@ class CliTest(unittest.TestCase):
             self.run_main("check", "--gate", "実装", REQ)
         self.assertEqual(cm.exception.code, 2)
 
+    def test_hash_takes_one_file(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            self.run_main("hash", REQ, DESIGN)
+        self.assertEqual(cm.exception.code, 2)
+
     def test_check_gate_and_approved_together(self):
         self.repo.write_plan(with_body(PLAN_BODIES, 要確認=question("release")))
         code, out = self.run_main("check", "--gate", "release", "--approved", PLAN)
@@ -1286,6 +1317,18 @@ class CliTest(unittest.TestCase):
         result = self.run_script("check", "--gate", "実装", "nothing")
         self.assertEqual(result.returncode, 2, result)
         self.assertIn("'実装'", result.stderr.decode("utf-8"))
+
+    def test_html_writes_nothing_to_stderr(self):
+        # 警告と「古い HTML を消した」も stdout に出す。stderr は引数の誤りだけ
+        self.run_main("html", REQ)
+        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:x)"))
+        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)"))
+        result = self.run_script("html", REQ, DESIGN)
+        self.assertEqual(result.returncode, 1, result)
+        out = result.stdout.decode("utf-8")
+        self.assertIn("古い requirements.html を消した", out)
+        self.assertIn("警告: リンク先が無い: mocks/detail.html", out)
+        self.assertEqual(result.stderr, b"")
 
     def test_main_leaves_the_caller_streams_alone(self):
         # モジュールから main を呼ぶ側の標準出力の設定は変えない
