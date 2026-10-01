@@ -3,5 +3,11 @@
   "owner": {
     "name": "so-ota-invox"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "sdd",
+      "source": "./plugins/sdd",
+      "description": "要件定義書・基本設計書・実装プランを決まった型で書き、番号の対応と見出しの構造を機械で照合する"
+    }
+  ]
 }
