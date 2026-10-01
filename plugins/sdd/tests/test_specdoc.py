@@ -114,13 +114,14 @@ def lock(test, path):
 
 
 class Repo:
-    """一時ディレクトリをリポジトリルートに見立てる。"""
+    """一時ディレクトリに .git を置き、リポジトリルートに見立てる。"""
 
     def __init__(self, test):
         tmp = tempfile.TemporaryDirectory()
         test.addCleanup(tmp.cleanup)
         self.test = test
         self.root = Path(tmp.name)
+        (self.root / ".git").mkdir()
 
     def path(self, rel):
         return self.root / rel
@@ -697,6 +698,22 @@ class CheckTest(unittest.TestCase):
             self.repo.messages(f"{SPEC}/billing/requirements.md"),
             ["要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く"],
         )
+
+    def test_specs_must_be_at_the_repository_root(self):
+        expected = ["specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く"]
+        text = self.repo.read(REQ)
+        for rel in ("docs/specs/12-invoice/requirements.md", f"{SPEC}/specs/13-other/requirements.md"):
+            with self.subTest(rel=rel):
+                self.repo.write(rel, text)
+                self.assertEqual(self.repo.messages(rel), expected)
+                # hash も、リポジトリルートからでないパスを出さない
+                upstream, errors = specdoc.run_hash(str(self.repo.path(rel)))
+                self.assertEqual((upstream, [msg for _, _, msg in errors]), (None, expected))
+        self.repo.path(".git").rmdir()
+        self.assertEqual(self.repo.messages(REQ), expected)
+        # worktree と submodule では .git がファイル
+        self.repo.write(".git", "gitdir: ../main/.git/worktrees/x\n")
+        self.assertEqual(self.repo.messages(REQ), [])
 
     def test_directory_is_not_accepted(self):
         # どのファイルを渡すかは呼び出す側が決める。ディレクトリの下のどれを見るかの規則を持たない

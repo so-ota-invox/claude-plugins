@@ -839,11 +839,17 @@ class Doc:
             if not CHILD_RE.match(parts[1]) or parts[1] in RESERVED_CHILD_NAMES:
                 self.add_error(1, f"子のディレクトリ名は、{CHILD_RULE}にする")
                 return
-        # 大文字・小文字を区別しないファイルシステムでも、Linux と同じく名前の違いを誤りにする
         try:
+            # .git のあるディレクトリをリポジトリルートとみなす。worktree と submodule では .git がファイル
+            at_root = exact_kind(str(anc.parent), [".git"]) in ("file", "dir")
+            # 大文字・小文字を区別しないファイルシステムでも、Linux と同じく名前の違いを誤りにする
             exact = exact_kind(str(anc.parent), (SPECS_DIR,) + parts) == "file"
         except OSError as e:
             self.add_error(1, f"パスを調べられない: {e.strerror or e}")
+            return
+        if not at_root:
+            # 上流と親のパス、hash が出すパスをリポジトリルートからにする
+            self.add_error(1, "specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く")
             return
         if not exact:
             self.add_error(1, "パスの大文字・小文字が実際の名前と違う")
