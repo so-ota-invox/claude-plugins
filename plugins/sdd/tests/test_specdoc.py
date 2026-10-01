@@ -1158,6 +1158,10 @@ class HtmlTest(unittest.TestCase):
         self.assertIn('<a href="../../docs/design.md">', out)
         self.assertNotIn("docs/design.html", out)
 
+    def test_meta_item_without_key_keeps_dt_before_dd(self):
+        self.repo.replace(REQ, "- 著者: 山田\n", "- 著者: 山田\n- 備考\n")
+        self.assertIn("<dt></dt>\n<dd>備考</dd>", self.meta_of(REQ))
+
     def test_meta_path_with_backslash_is_not_linked(self):
         # 書式の誤りなので html は書き出さないが、Renderer の側でもリンクにしない
         for bad in (f"{SPEC}/\\\\evil.example.com/x@0123456789ab", f"{SPEC}/..\\..\\outside/design.md@0123456789ab"):

@@ -1451,6 +1451,8 @@ class Renderer:
         for item in self.doc.meta_block.items:
             m = KV_RE.match(item.text)
             if not m:
+                # 「項目: 値」の形でない箇条でも、dd の前に dt を置く（dl の中身の決まり）
+                out.append("<dt></dt>")
                 out.append(f"<dd>{self.inline(item.inline, False)}</dd>")
                 continue
             key, value = m.group(1), (m.group(2) or "").strip()
