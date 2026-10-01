@@ -1173,6 +1173,13 @@ class CliTest(unittest.TestCase):
             code = specdoc.main(list(argv))
         return code, out.getvalue()
 
+    def run_script(self, *argv):
+        """スクリプトとして実行する。標準出力・標準エラーの文字コードは ASCII にしておく。"""
+        env = dict(os.environ, PYTHONIOENCODING="ascii")
+        return subprocess.run(
+            [sys.executable, specdoc.__file__] + list(argv), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+
     def test_check_ok(self):
         self.assertEqual(self.run_main("check", REQ, DESIGN, PLAN), (0, "ok: 3 件\n"))
 
@@ -1268,20 +1275,17 @@ class CliTest(unittest.TestCase):
         with mock.patch.object(specdoc.os.path, "relpath", side_effect=ValueError("path is on mount 'C:', start on mount 'D:'")):
             self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルが無い\n"))
 
-    def test_output_is_utf8_whatever_the_locale(self):
-        # 標準出力・標準エラーの文字コードを ASCII にしても、スクリプトとして実行すれば UTF-8 で出す
-        env = dict(os.environ, PYTHONIOENCODING="ascii")
-        cases = [
-            (["check", "nothing"], 1, "stdout", "nothing:1: ファイルが無い\n"),
-            (["check", "--gate", "実装", "nothing"], 2, "stderr", "'実装'"),
-        ]
-        for argv, code, stream, expected in cases:
-            with self.subTest(argv=argv):
-                result = subprocess.run(
-                    [sys.executable, specdoc.__file__] + argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                self.assertEqual(result.returncode, code, result)
-                self.assertIn(expected, getattr(result, stream).decode("utf-8"))
+    def test_stdout_is_utf8_whatever_the_locale(self):
+        # 標準出力の文字コードを ASCII にしても、スクリプトとして実行すれば UTF-8 で出す
+        result = self.run_script("check", "nothing")
+        self.assertEqual(result.returncode, 1, result)
+        self.assertIn("nothing:1: ファイルが無い\n", result.stdout.decode("utf-8"))
+
+    def test_stderr_is_utf8_whatever_the_locale(self):
+        # 引数の誤り（argparse）が出る標準エラーも同じ
+        result = self.run_script("check", "--gate", "実装", "nothing")
+        self.assertEqual(result.returncode, 2, result)
+        self.assertIn("'実装'", result.stderr.decode("utf-8"))
 
     def test_main_leaves_the_caller_streams_alone(self):
         # モジュールから main を呼ぶ側の標準出力の設定は変えない
