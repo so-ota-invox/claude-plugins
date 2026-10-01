@@ -278,7 +278,7 @@ class CheckTest(unittest.TestCase):
         ]
         for body, expected in cases:
             with self.subTest(body=body):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=body))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=body))
                 self.assertIn(expected, self.repo.messages(REQ))
 
     def test_syntax_errors_hide_other_errors(self):
@@ -366,7 +366,7 @@ class CheckTest(unittest.TestCase):
 
     def test_duplicate_id(self):
         bodies = with_body(REQ_BODIES, 非機能要件="- R-003: 1,000 件を 60 秒以内に発行する\n- R-002: 重ねた番号")
-        self.repo.write_requirements(bodies=bodies)
+        self.repo.write_requirements(bodies)
         first = self.repo.read(REQ).split("\n").index("- R-002: 発行済みの請求書は選べない") + 1
         self.assertEqual(self.repo.messages(REQ), [f"番号が重なっている: R-002（{first} 行目）"])
 
@@ -387,7 +387,7 @@ class CheckTest(unittest.TestCase):
 
     def test_references_do_not_reach_downstream(self):
         expected = ["下流か別の子の文書の番号は参照しない: AC-001", "下流か別の子の文書の番号は参照しない: S-001"]
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="AC-001 と S-001 は扱わない"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="AC-001 と S-001 は扱わない"))
         self.assertEqual(self.repo.messages(REQ), expected)
         self.repo.path(DESIGN).unlink()
         self.repo.path(PLAN).unlink()
@@ -463,7 +463,7 @@ class CheckTest(unittest.TestCase):
 
     def test_question_fields(self):
         q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 解決する工程: 実装"
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 要確認=q))
+        self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q))
         messages = self.repo.messages(REQ)
         self.assertIn("Q-001 の下の項目が無い: 期限", messages)
         self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
@@ -594,7 +594,7 @@ class CheckTest(unittest.TestCase):
     def test_too_long_names_are_missing(self):
         # Python 3.12 までの Path.exists は ENAMETOOLONG で例外を送る
         name = "a" * 300 + ".md"
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
         self.assertEqual(self.repo.messages(REQ), [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"])
 
     def test_gate(self):
@@ -743,19 +743,19 @@ class CheckTest(unittest.TestCase):
         ]
         for dest, expected in cases:
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), [expected])
         # ? と # より後はパスではない
         for dest in ("mocks/list.html?q=a%2Fb", "mocks/list.html#a%2Fb", "mocks/list.html?q=1#x"):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.check(REQ), [])
 
     def test_link_destination_without_backslash(self):
         # ブラウザは http・https・file の URL でバックスラッシュを / と読むので、\\host は //host と同じになる
         for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x", "a\\b.md", "https://example.com\\x"):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
 
     def test_gate_does_not_look_downstream(self):
@@ -989,7 +989,7 @@ class HtmlTest(unittest.TestCase):
     def test_md_links_become_html_and_text_is_escaped(self):
         body = "A & B を比べる。[設計](design.md#AC-001) と [表](data.md) と [問](design.md?v=1)"
         self.repo.write(f"{SPEC}/data.md", "x\n")
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, **{"背景・目的": body}))
+        self.repo.write_requirements(with_body(REQ_BODIES, **{"背景・目的": body}))
         out = self.render(REQ)
         self.assertIn("A &amp; B", out)
         self.assertIn('<a href="design.html#AC-001">設計</a>', out)
@@ -998,14 +998,14 @@ class HtmlTest(unittest.TestCase):
         self.assertIn('<a href="design.html?v=1">問</a>', out)
 
     def test_no_output_on_syntax_error(self):
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="* x"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="* x"))
         written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["箇条書きは - で書く"])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_no_output_on_link_form_error(self):
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
         written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["リンク先は相対パスか http・https・mailto にする: javascript:alert%281%29"])
@@ -1038,26 +1038,26 @@ class HtmlTest(unittest.TestCase):
         denied = ("javascript:alert%281%29", "JAVASCRIPT:x", "data:text/html,x", "vbscript:x", "//evil.example.com/x", "/etc/passwd", "HTTPS://example.com")
         for dest in denied:
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
                 out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn(f'href="{specdoc.esc(dest)}"', out)
         for dest in ("https://example.com", "http://example.com", "mailto:a@example.com", "#R-001"):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [可]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [可]({dest})"))
                 out = self.render_directly(REQ)
                 self.assertIn(f'<a href="{specdoc.esc(dest)}">可</a>', out)
 
     def test_renderer_does_not_link_backslash_destinations(self):
         for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x"):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
+                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
                 out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn("evil.example.com", out)
 
     def test_output_despite_other_check_errors(self):
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- R-099 を参照"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- R-099 を参照"))
         self.assertEqual(self.repo.messages(REQ), ["定義の無い番号: R-099"])
         self.assertIn("<li>R-099 を参照</li>", self.render(REQ))
 
@@ -1111,7 +1111,7 @@ class HtmlTest(unittest.TestCase):
         self.repo.write(f"{SPEC}/mocks/design.md", "x\n")
         self.repo.write("specs/13-other/design.md", "x\n")
         body = "[外](../../docs/design.md)、[モック](mocks/design.md)、[別](../13-other/design.md)"
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, **{"背景・目的": body}))
+        self.repo.write_requirements(with_body(REQ_BODIES, **{"背景・目的": body}))
         out = self.render(REQ)
         self.assertIn('<a href="../../docs/design.md">外</a>', out)
         self.assertIn('<a href="mocks/design.md">モック</a>', out)
@@ -1119,7 +1119,7 @@ class HtmlTest(unittest.TestCase):
 
     def test_stale_html_is_removed(self):
         self.render(REQ)
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="* x"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="* x"))
         written, errors, notes = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual((written, [msg for _, _, msg in errors]), ([], ["箇条書きは - で書く"]))
         self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
@@ -1321,7 +1321,7 @@ class CliTest(unittest.TestCase):
     def test_html_writes_nothing_to_stderr(self):
         # 警告と「古い HTML を消した」も stdout に出す。stderr は引数の誤りだけ
         self.run_main("html", REQ)
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:x)"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:x)"))
         self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)"))
         result = self.run_script("html", REQ, DESIGN)
         self.assertEqual(result.returncode, 1, result)
@@ -1339,7 +1339,7 @@ class CliTest(unittest.TestCase):
 
     def test_html_error_and_notes(self):
         self.run_main("html", REQ)
-        self.repo.write_requirements(bodies=with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
+        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
         line = self.repo.read(REQ).split("\n").index("- 例: [x](javascript:alert%281%29)") + 1
         self.assertEqual(
             self.run_main("html", REQ),
