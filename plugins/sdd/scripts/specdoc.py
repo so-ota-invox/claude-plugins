@@ -1083,6 +1083,7 @@ class Doc:
             if body and not UNSPLIT_RE.match(text):
                 err((paras or body)[0].line, "分割しないときは「分割しない。理由: …」と書く")
             return
+        owners = {}  # R -> 最初に割り当てた子の名前
         for b in lists:
             for item in b.items:
                 m = KV_RE.match(item.text)
@@ -1097,6 +1098,10 @@ class Doc:
                     err(item.line, f"説明が空: {name}")
                 fields = read_fields(item, name, SPLIT_FIELDS, err)
                 reqs = parse_ids(fields["要件"], "要件", "R", err, True) if "要件" in fields else []
+                for r in reqs:
+                    owner = owners.setdefault(r, name)
+                    if owner != name:
+                        err(fields["要件"][0].line, f"2 つ以上の子に割り当てた R: {r}（{owner} と {name}。子をまたぐ R は割り当てず、この文書の AC で受ける）")
                 dep = fields.get("依存")
                 if dep and dep[1] and dep[1] != NONE_VALUE:
                     for d in dep[1].split(LIST_SEP):

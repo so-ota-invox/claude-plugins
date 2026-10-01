@@ -862,6 +862,19 @@ class SplitTest(unittest.TestCase):
                 self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
                 self.assertIn(expected, self.repo.messages(DESIGN))
 
+    def test_r_assigned_to_two_children(self):
+        # 子をまたぐ R は子に割り当てず、親の AC で受ける。後の子の「要件」の行に出す
+        item = "  - 要件: R-002、R-003"
+        split = SPLIT.replace("  - 要件: R-002", item)
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        line = self.repo.read(DESIGN).split("\n").index(item) + 1
+        msg = "2 つ以上の子に割り当てた R: R-003（billing と listing。子をまたぐ R は割り当てず、この文書の AC で受ける）"
+        self.assertEqual(self.repo.check(DESIGN), [(DESIGN, line, msg)])
+        # 1 つの子の中の重なりは、子をまたぐ割り当てとは別のエラーにする
+        split = SPLIT.replace("R-001、R-003", "R-001、R-001、R-003")
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.assertEqual(self.repo.messages(DESIGN), ["要件 に同じ番号を重ねて書かない"])
+
     def test_child_name_may_end_with_digits(self):
         split = SPLIT.replace("- listing:", "- phase2:")
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
