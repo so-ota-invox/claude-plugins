@@ -946,7 +946,8 @@ class Doc:
         approver = self.meta.get("承認者")
         if self.state == "approved" and (approver is None or not approver[1]):
             err(approver[0].line if approver else state[0].line, "approved のときは承認者を書く")
-        if self.state != "approved" and approver is not None:
+        # 状態が無い・誤っているときは、承認者のエラーを重ねず状態のエラーだけを出す
+        if self.state == "draft" and approver is not None:
             err(approver[0].line, "承認者は approved のときだけ書く")
         legend = need("凡例")
         if legend and legend[1] != LEGEND:

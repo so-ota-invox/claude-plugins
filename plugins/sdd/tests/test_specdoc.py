@@ -360,6 +360,19 @@ class CheckTest(unittest.TestCase):
         self.repo.replace(REQ, "- 状態: approved", "- 状態: draft")
         self.assertEqual(self.repo.messages(REQ), ["承認者は approved のときだけ書く"])
 
+    def test_wrong_or_missing_state_does_not_add_an_approver_error(self):
+        # 状態の誤りが 1 つなら、承認者のエラーを重ねず 1 件にする
+        cases = [
+            ("- 状態: approved", "- 状態: aproved", "状態は draft・approved のどれか"),
+            ("- 状態: approved\n", "", "管理情報の項目が無い: 状態"),
+        ]
+        original = self.repo.read(REQ)
+        for old, new, expected in cases:
+            with self.subTest(expected=expected):
+                self.repo.write(REQ, original)
+                self.repo.replace(REQ, old, new)
+                self.assertEqual(self.repo.messages(REQ), [expected])
+
     def test_requirements_have_no_upstream(self):
         self.repo.write(REQ, build_doc("requirements", meta(upstream=["specs/x.md@0123456"]), REQ_BODIES))
         self.assertIn("要件定義書には上流を書かない", self.repo.messages(REQ))
