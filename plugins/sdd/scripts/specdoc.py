@@ -873,7 +873,6 @@ class Doc:
                 self.read_split(err)
                 self.read_tables(err)
             self.read_data_use(err)
-        self.check_links(err)
 
     def index_blocks(self, err):
         blocks = self.blocks
@@ -1357,6 +1356,7 @@ def check_doc(doc, gate=None, require_approved=False):
     def err(line, msg):
         errors.append((line, msg))
 
+    doc.check_links(err)
     for line, ident in doc.refs:
         if not doc.can_refer(ident):
             err(line, f"下流か別の子の文書の番号は参照しない: {ident}")

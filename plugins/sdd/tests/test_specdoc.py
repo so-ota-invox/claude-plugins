@@ -723,6 +723,14 @@ class CheckTest(unittest.TestCase):
                 self.assertEqual(files, [])
                 self.assertEqual([msg for _, _, msg in errors], ["ファイルを指定する"])
 
+    def test_links_are_checked_once_for_the_given_document_only(self):
+        # 上流として読んだ要件定義書のリンクは見ない
+        for run in (specdoc.run_check, specdoc.run_html):
+            with self.subTest(run=run.__name__):
+                with mock.patch.object(specdoc.Doc, "check_links", autospec=True, side_effect=specdoc.Doc.check_links) as m:
+                    run([str(self.repo.path(DESIGN))])
+                self.assertEqual([c.args[0].path for c in m.call_args_list], [self.repo.path(DESIGN)])
+
     def test_document_name_must_match_exactly(self):
         # 大文字・小文字を区別しない macOS でも、Design.md を型の文書として扱わない
         rel = "specs/13-other/Design.md"
