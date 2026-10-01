@@ -1570,6 +1570,13 @@ def run_check(args, gate=None, require_approved=False):
     return files, errors
 
 
+def write_output(path, data):
+    """path に data を書く。path がシンボリックリンクなら、リンク先を上書きせずに OSError を送る。"""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o666)
+    with open(fd, "wb") as f:
+        f.write(data)
+
+
 def remove_stale_html(path, out, errors, notes):
     """書き出せなかった文書の前の HTML（書きかけを含む）を消し、Markdown と食い違う HTML を残さない。"""
     try:
@@ -1600,7 +1607,7 @@ def run_html(args):
             continue
         doc.check_links(lambda line, msg: notes.append((path, line, f"警告: {msg}")))
         try:
-            out.write_bytes(Renderer(doc).render().encode("utf-8"))
+            write_output(out, Renderer(doc).render().encode("utf-8"))
         except OSError as e:
             errors.append((path, 1, f"{out.name} を書けない: {e.strerror or e}"))
             remove_stale_html(path, out, errors, notes)

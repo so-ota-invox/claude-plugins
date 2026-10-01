@@ -1163,7 +1163,7 @@ class HtmlTest(unittest.TestCase):
                 f.write(data[: len(data) // 2])
             raise OSError(errno.ENOSPC, "No space left on device")
 
-        with mock.patch.object(Path, "write_bytes", write_half):
+        with mock.patch.object(specdoc, "write_output", write_half):
             written, errors, notes = specdoc.run_html([str(path)])
         self.assertEqual((written, errors), ([], [(path, 1, "requirements.html を書けない: No space left on device")]))
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
@@ -1179,10 +1179,39 @@ class HtmlTest(unittest.TestCase):
                 f.write(data[: len(data) // 2])
             raise KeyboardInterrupt
 
-        with mock.patch.object(Path, "write_bytes", write_half):
+        with mock.patch.object(specdoc, "write_output", write_half):
             with self.assertRaises(KeyboardInterrupt):
                 specdoc.run_html([str(path)])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
+
+    def test_symlinked_html_is_not_followed(self):
+        # 出力先のシンボリックリンクをたどってリンク先を上書きせず、書けなかったときと同じくリンクを消す
+        victim = self.repo.path("victim.txt")
+        victim.write_bytes(b"keep\n")
+        out = self.repo.path(f"{SPEC}/requirements.html")
+        os.symlink(victim, out)
+        path = self.repo.path(REQ)
+        written, errors, notes = specdoc.run_html([str(path)])
+        reason = os.strerror(errno.ELOOP)
+        self.assertEqual((written, errors), ([], [(path, 1, f"requirements.html を書けない: {reason}")]))
+        self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
+        self.assertEqual(victim.read_bytes(), b"keep\n")
+        self.assertFalse(os.path.lexists(out))
+        # リンクを消したので、次は書き出せる
+        self.assertEqual(specdoc.run_html([str(path)])[:2], ([out], []))
+        self.assertFalse(out.is_symlink())
+
+    def test_dangling_symlinked_html_is_not_followed(self):
+        # リンク先が無いときも、リンク先を作らない
+        victim = self.repo.path("victim.txt")
+        out = self.repo.path(f"{SPEC}/requirements.html")
+        os.symlink(victim, out)
+        path = self.repo.path(REQ)
+        written, errors, notes = specdoc.run_html([str(path)])
+        reason = os.strerror(errno.ELOOP)
+        self.assertEqual((written, errors), ([], [(path, 1, f"requirements.html を書けない: {reason}")]))
+        self.assertEqual(notes, [])
+        self.assertFalse(os.path.lexists(victim))
 
 
 class CliTest(unittest.TestCase):
