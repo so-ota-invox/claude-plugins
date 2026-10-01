@@ -933,6 +933,11 @@ class SplitTest(unittest.TestCase):
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
         self.assertEqual(self.repo.messages(DESIGN), ["依存には、先に並べた子を書く（並び順が実装順）: refund"])
 
+    def test_dependency_must_not_repeat(self):
+        split = SPLIT.replace("依存: billing", "依存: billing、billing")
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.assertEqual(self.repo.messages(DESIGN), ["依存 に同じ子を重ねて書かない"])
+
     def test_requirement_not_assigned_nor_covered(self):
         split = SPLIT.replace("要件: R-001、R-003", "要件: R-001")
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))

@@ -1109,8 +1109,10 @@ class Doc:
                         err(fields["要件"][0].line, f"2 つ以上の子に割り当てた R: {r}（{owner} と {name}。子をまたぐ R は割り当てず、この文書の AC で受ける）")
                 dep = fields.get("依存")
                 if dep and dep[1] and dep[1] != NONE_VALUE:
-                    for d in dep[1].split(LIST_SEP):
-                        d = d.strip()
+                    deps = [d.strip() for d in dep[1].split(LIST_SEP)]
+                    if len(set(deps)) != len(deps):
+                        err(dep[0].line, "依存 に同じ子を重ねて書かない")
+                    for d in deps:
                         if d not in self.split:
                             err(dep[0].line, f"依存には、先に並べた子を書く（並び順が実装順）: {d}")
                 self.split[name] = reqs
