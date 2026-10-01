@@ -437,7 +437,6 @@ class Parser:
 
     def __init__(self, text):
         self.errors = []
-        self.seen = set()  # errors の重複を定数時間で見る
         self.blocks = []
         if text.startswith("\ufeff"):
             self.error(1, "BOM を付けない")
@@ -455,9 +454,8 @@ class Parser:
         self.parse()
 
     def error(self, line, msg):
-        if (line, msg) not in self.seen:
-            self.seen.add((line, msg))
-            self.errors.append((line, msg))
+        # 同じ行の同じ誤りは format_errors が 1 つにまとめる
+        self.errors.append((line, msg))
 
     def check_tab(self, i):
         if "\t" in self.lines[i]:

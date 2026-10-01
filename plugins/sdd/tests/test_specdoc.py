@@ -230,13 +230,6 @@ class HelperTest(unittest.TestCase):
     def test_mermaid_integrity_is_sha384(self):
         self.assertRegex(specdoc.MERMAID_INTEGRITY, r"^sha384-[A-Za-z0-9+/]{64}$")
 
-    def test_parser_reports_the_same_error_once(self):
-        parser = specdoc.Parser("")
-        before = list(parser.errors)
-        for line, msg in [(3, "x"), (1, "y"), (3, "x")] + before:
-            parser.error(line, msg)
-        self.assertEqual(parser.errors, before + [(3, "x"), (1, "y")])
-
     def test_format_errors_orders_by_file_then_line_without_duplicates(self):
         a, b = Path("a.md"), Path("b.md")
         errors = [(b, 2, "x"), (a, 1, "y"), (b, 1, "z"), (b, 2, "x")]
@@ -1322,6 +1315,17 @@ class CliTest(unittest.TestCase):
         code, out = self.run_main("check", REQ)
         self.assertEqual(code, 1)
         self.assertEqual(out, f"{REQ}:{line}: 本文が空: ## リリース日。書く内容が無ければ「なし」と書く\n")
+
+    def test_same_error_on_a_line_is_printed_once(self):
+        body = "![図](a.png) と ![図](b.png)"
+        self.repo.write_requirements(with_body(REQ_BODIES, **{"背景・目的": body}))
+        text = self.repo.read(REQ)
+        line = text.split("\n").index(body) + 1
+        # 前提: パーサは同じ誤りを 2 つ積み、出力の手前でまとめる
+        self.assertEqual(specdoc.Parser(text).errors.count((line, "画像は使えない")), 2)
+        for cmd in ("check", "html"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.run_main(cmd, REQ), (1, f"{REQ}:{line}: 画像は使えない\n"))
 
     def test_check_missing_path(self):
         code, out = self.run_main("check", "nothing")
