@@ -299,7 +299,7 @@ class CheckTest(unittest.TestCase):
         lines = self.repo.read(REQ).split("\n")
         at = lines.index("なし\rなし") + 1
         self.assertEqual(self.repo.check(REQ), [(REQ, at, cr)])
-        # CR より後ろの行の番号も、エディタで数える行と合う
+        # CR より後ろの行の番号も、grep -n や git など LF で数える行と合う
         self.repo.replace(REQ, "## 要確認\n\nなし", "## 要確認\n\n* x")
         lines = self.repo.read(REQ).split("\n")
         self.assertEqual(

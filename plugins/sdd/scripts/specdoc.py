@@ -435,7 +435,7 @@ class Parser:
 
     def __init__(self, text):
         self.errors = []
-        self.seen = set()  # errors \u306e\u91cd\u8907\u3092\u5b9a\u6570\u6642\u9593\u3067\u898b\u308b
+        self.seen = set()  # errors の重複を定数時間で見る
         self.blocks = []
         if text.startswith("\ufeff"):
             self.error(1, "BOM を付けない")
@@ -446,7 +446,7 @@ class Parser:
         self.lines = text.split("\n")
         if self.lines and self.lines[-1] == "":
             self.lines.pop()
-        # CR だけの改行は行として分けない。分けると、それより後の行番号がエディタの表示とずれる
+        # CR だけの改行は行として分けない。分けると、それより後の行番号が grep -n や git など LF で行を数える道具とずれる
         for i, line in enumerate(self.lines):
             if "\r" in line:
                 self.error(i + 1, "改行は LF にする（CR だけで改行しない）")
@@ -1276,26 +1276,26 @@ def listed_in_parent(doc, err):
 
 
 def check_coverage(doc, err):
-    if doc.kind == "design" and doc.child is None:
-        req = doc.spec_doc("requirements")
-        if req is None:
-            err(1, f"要件定義書が無い: {doc.spec_rel}/requirements.md")
-            return
+    if doc.kind == "design":
+        if doc.child is None:
+            req = doc.spec_doc("requirements")
+            if req is None:
+                err(1, f"要件定義書が無い: {doc.spec_rel}/requirements.md")
+                return
+            assigned = {r for reqs in (doc.split or {}).values() for r in reqs}
+            wanted = [r for r in req.defs if split_id(r)[0] == "R" and r not in assigned]
+            note = ""
+        else:
+            top = listed_in_parent(doc, err)
+            if top is None:
+                return
+            wanted = top.split[doc.child]
+            note = "（親の「サブ機能分割」でこの子に割り当てている）"
         covered = {r for reqs in doc.ac_reqs.values() for r in reqs}
-        assigned = {r for reqs in (doc.split or {}).values() for r in reqs}
         at = doc.heading_line(AC_SECTION)
-        for r in req.defs:
-            if split_id(r)[0] == "R" and r not in covered and r not in assigned:
-                err(at, f"受ける AC の無い R: {r}")
-    elif doc.kind == "design":
-        top = listed_in_parent(doc, err)
-        if top is None:
-            return
-        covered = {r for reqs in doc.ac_reqs.values() for r in reqs}
-        at = doc.heading_line(AC_SECTION)
-        for r in top.split[doc.child]:
+        for r in wanted:
             if r not in covered:
-                err(at, f"受ける AC の無い R: {r}（親の「サブ機能分割」でこの子に割り当てている）")
+                err(at, f"受ける AC の無い R: {r}{note}")
     elif doc.kind == "plan":
         if doc.child and listed_in_parent(doc, err) is None:
             return
