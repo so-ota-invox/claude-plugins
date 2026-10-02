@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
 
-使い方（scripts/specdoc.py は sdd plugin のディレクトリからのパス）:
-  python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
-  python3 scripts/specdoc.py html <ファイル>...
-  python3 scripts/specdoc.py hash <ファイル>
+使い方（<plugin> は sdd plugin のディレクトリの絶対パス）:
+  python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
+  python3 <plugin>/scripts/specdoc.py html <ファイル>...
+  python3 <plugin>/scripts/specdoc.py hash <ファイル>
 
 型は plugin の formats/ に置く。Python 3.9 以上の標準ライブラリだけで、macOS と Linux（WSL を含む）で動く。
 """
@@ -1241,6 +1241,22 @@ def required_upstreams(doc):
     return req
 
 
+def ancestors(doc):
+    """上流をたどって着く文書（上位の文書）を、近い順に返す。無い文書は飛ばす（無いことは check_upstream が出す）。"""
+    found = []
+    todo = [doc]
+    while todo:
+        d = todo.pop(0)
+        if d.root is None or d.doc_type == "requirements":
+            continue
+        for rel in required_upstreams(d):
+            up = d.ws.load(d.root.joinpath(*rel.split("/")))
+            if up is not None and up not in found:
+                found.append(up)
+                todo.append(up)
+    return found
+
+
 def check_upstream(doc, err):
     entry = doc.meta.get("上流")
     if doc.doc_type == "requirements" or entry is None:
@@ -1581,12 +1597,21 @@ def expand(args):
 
 
 def run_check(args, gate=None, require_approved=False):
+    """照合した文書のパスとエラーを返す。ゲートを渡すと、上位の文書も同じゲートで照合する。"""
     ws = Workspace()
     files, errors = expand(args)
+    checked = list(files)
     for path in files:
         doc = ws.load(path)
         errors.extend((path, line, msg) for line, msg in check_doc(doc, gate, require_approved))
-    return files, errors
+        if gate is None:
+            continue
+        # 上位の文書が approved であることは、その 1 つ下の文書の上流の照合が確かめる
+        for up in ancestors(doc):
+            if up.path not in checked:
+                checked.append(up.path)
+                errors.extend((up.path, line, msg) for line, msg in check_doc(up, gate))
+    return checked, errors
 
 
 def write_output(path, data):
@@ -1677,8 +1702,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command")
     sub.required = True
     p = sub.add_parser("check", help="型と照合する")
-    p.add_argument("--gate", choices=STAGES, help="解決する工程がこの工程かそれより前の要確認が残っていればエラーにする")
-    p.add_argument("--approved", action="store_true", help="状態が approved でなければエラーにする")
+    p.add_argument(
+        "--gate", choices=STAGES, help="渡した文書と上位の文書に、解決する工程がこの工程かそれより前の要確認が残っていればエラーにする"
+    )
+    p.add_argument("--approved", action="store_true", help="渡した文書の状態が approved でなければエラーにする")
     p.add_argument("paths", nargs="+", metavar="PATH")
     p = sub.add_parser("html", help="Markdown の隣に HTML を書き出す")
     p.add_argument("paths", nargs="+", metavar="PATH")

@@ -1,6 +1,6 @@
 # 共通の型
 
-要件定義書（requirements.md）・基本設計書（design.md。以下「設計書」）・実装プラン（plan.md）に共通する書き方。文書ごとの見出しと記入要領は、同じディレクトリの requirements.md・design.md・plan.md に書く。`scripts/specdoc.py`（sdd plugin のディレクトリからのパス。以下同じ）がこの型を機械で照合する。
+要件定義書（requirements.md）・基本設計書（design.md。以下「設計書」）・実装プラン（plan.md）に共通する書き方。文書ごとの見出しと記入要領は、同じディレクトリの requirements.md・design.md・plan.md に書く。`<plugin>/scripts/specdoc.py` がこの型を機械で照合する。`<plugin>` は sdd plugin のディレクトリ（このファイルの 1 つ上）の絶対パス。
 
 ## 置き場
 
@@ -53,7 +53,7 @@
 ## 上流と hash
 
 - hash は、改行を LF にしたファイルの中身の hash（git の blob hash）の先頭 12 文字。CRLF で取り出した作業ツリーでも同じ値になる。commit hash は squash merge や rebase merge で残らないので使わない
-- `python3 scripts/specdoc.py hash <ファイル>` の出力をそのまま書く。人は hash を手で書かない
+- `python3 <plugin>/scripts/specdoc.py hash <ファイル>` の出力をそのまま書く。人は hash を手で書かない
 - 上流に書く文書。これだけを、すべて書く
   - 設計書: 要件定義書。子の設計書は親の設計書も
   - 実装プラン: 同じディレクトリの設計書。子の実装プランは親の実装プランも
@@ -116,6 +116,7 @@
 ## 仮定
 
 - 要確認を立てる条件に当たらず決め打ちしたことを、短い箇条で書く
+- 反証の付いた P0 を人が退けたときは、その P0 が指した問題と、退けたことと理由も書く
 
 ## 状態と承認
 
@@ -137,11 +138,11 @@
 
 - 既存コードについての主張には `file:line` を付ける（例: `app/models/invoice.rb:42`）
 - 設計書と実装プランの末尾の「調査範囲」に、読んだものと確認していない範囲を 2〜3 行で書く
-- 調査の途中結果は Git で管理しない一時ファイルに置き、文書にしない
+- 調査の途中結果は文書にしない
 
 ## 指摘
 
-review の指摘は 1 件 1 箇条で返す。
+review は指摘を文書の隣の指摘のファイル `<文書名>.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.review.md`）に 1 件 1 箇条で書き、review のたびに上書きする。途中で agent ごとの指摘を、同じ形で報告のファイル `<文書名>.<agent の名前>.review.md`（`specs/12-invoice/design.fact-checker.review.md` など）に書く。指摘が無ければ「指摘なし」とだけ書く。
 
 ```text
 - P1 specs/12-invoice/design.md:40: 問題。直し方
@@ -151,6 +152,13 @@ review の指摘は 1 件 1 箇条で返す。
 - P0: 重大な欠陥。直すまで進めない。P0 を退けられるのは人だけ
 - P1: 品質上の問題。原則として直す。判断が割れたら理由を付けて残し、人が決める
 - P2: 改善の提案。直すかは任意
+- 検証で誤りと見た P0 は消さず、下に `- 反証: …` を書いて残す
+
+指摘のファイルと報告のファイルは Git で管理しない。リポジトリの `.gitignore` に次を足す
+
+```gitignore
+specs/**/*.review.md
+```
 
 ## Markdown の書式
 
@@ -173,7 +181,7 @@ specs/**/*.md text eol=lf
 
 ## HTML
 
-- 人が読むのは HTML。`python3 scripts/specdoc.py html <ファイル>...` で Markdown の隣に `.html` を書き出す。LLM に変換させない
+- 人が読むのは HTML。`python3 <plugin>/scripts/specdoc.py html <ファイル>...` で Markdown の隣に `.html` を書き出す。LLM に変換させない
 - Markdown と、リンク先の文書（有無・置き場・件名）が同じなら、バイト単位で同じ HTML が出る
 - Markdown を書いたら、人が書いても skill が書いても、最後に必ず変換する
 - 書式か置き場に誤りがある文書と、読めない文書は書き出さず、終了コード 1 で終わる。置き場の合っている文書は、前に書き出した `.html` を消し、消したことを出す。`.html` を書けなかったときと、Ctrl-C などで中断したときも、書きかけを残さないように同じく消す
@@ -189,11 +197,11 @@ specs/**/*.html
 
 ## check
 
-- `python3 scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...`
+- `python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...`
 - 照合すること: この文書の「置き場」「文書の先頭」「管理情報」「上流と hash」「番号」「文書をまたぐ対応」「要確認」「見出し」「Markdown の書式」に書いた、文書の形と置き場の規則と、設計書の「サブ機能分割」「テーブル定義」「読み書きするデータ」の形、相対パスのリンク先の実在
 - 照合しないこと: 意味の対応、要確認を立てる条件、著者と回答者の書き方、画面モックの中身、コードとテストの中身、承認と上流の書き換えの手順。review で見る
 - check は下流の文書を見ない。下流がまだ無いことはエラーにしない
-- `--gate` は、渡した文書に、解決する工程がその工程かそれより前の要確認が残っていればエラーにする。どの文書を渡すかは呼ぶ側が決める（その工程の文書と上流）
-  - 例: 設計書を承認する前は、要件定義書と設計書を `--gate design` で照合する。実装を始める前は、要件定義書・設計書・実装プランを `--gate plan --approved` で照合する
-- `--approved` は、状態が `approved` でなければエラーにする
+- `--gate` は、渡した文書と、その上位の文書（上流をたどって着く文書すべて）に、解決する工程がその工程かそれより前の要確認が残っていればエラーにする。上位の文書も、渡した文書と同じく照合する
+  - 例: 設計書を承認する前は、設計書を `--gate design` で照合する。実装を始める前は、実装プランを `--gate plan --approved` で照合する
+- `--approved` は、渡した文書の状態が `approved` でなければエラーにする
 - エラーは `パス:行: メッセージ` の形で出し、1 件でもあれば終了コード 1 で終わる。エラーが無ければ `ok: 件数` を出す

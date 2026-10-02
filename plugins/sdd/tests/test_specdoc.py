@@ -635,6 +635,43 @@ class CheckTest(unittest.TestCase):
                     expected = [f"解決する工程が {stage} の要確認が残っている: Q-001"] if gate in stopping else []
                     self.assertEqual(self.repo.messages(rel, gate=gate), expected)
 
+    def test_gate_also_checks_upper_documents(self):
+        # ゲートは上位の文書にも当てる。実装プランには、2 つ上の要件定義書に残る要確認も効く
+        self.write_question(REQ, "plan", "approved")
+        self.repo.write_design()
+        self.repo.write_plan()
+        self.assertEqual(self.repo.check(PLAN), [])
+        for gate in specdoc.STAGES:
+            with self.subTest(gate=gate):
+                expected = [(REQ, "解決する工程が plan の要確認が残っている: Q-001")] if gate in ("plan", "release") else []
+                self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate=gate)], expected)
+
+    def test_gate_requires_every_upper_document_to_be_approved(self):
+        # 2 つ上の文書が approved でないことは、1 つ上の文書の上流の照合で止まる
+        self.repo.write_requirements(state="draft")
+        self.repo.write_design()
+        self.repo.write_plan()
+        self.assertEqual(self.repo.check(PLAN), [])
+        self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate="plan")], [(DESIGN, f"上流が approved でない: {REQ}")])
+
+    def test_gate_with_missing_upper_document(self):
+        # 2 つ上の文書が無いことは、1 つ上の文書の照合が出す。上位の文書をたどっても、同じエラーを重ねて出さない
+        self.repo.path(REQ).unlink()
+        self.assertEqual(self.repo.check(PLAN), [])
+        errors = self.repo.check(PLAN, gate="plan")
+        self.assertIn(f"上流のファイルが無い: {REQ}", [m for _, _, m in errors])
+        self.assertEqual(errors, self.repo.check(DESIGN))
+
+    def test_gate_with_unreadable_upper_document(self):
+        # 2 つ上の文書が読めないことは、1 つ上の文書の上流の照合と、その文書の照合が 1 回ずつ出す
+        lock(self, self.repo.path(REQ))
+        self.assertEqual(self.repo.check(PLAN), [])
+        errors = self.repo.check(PLAN, gate="plan")
+        messages = [m for _, _, m in errors]
+        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
+        self.assertTrue(any(m.startswith("読めない: ") for m in messages), messages)
+        self.assertEqual(errors, self.repo.check(DESIGN, REQ))
+
     def test_approved_doc_keeps_only_questions_for_later_stages(self):
         for rel, stage in ((REQ, "requirements"), (DESIGN, "design"), (PLAN, "plan")):
             with self.subTest(rel=rel, stage=stage):
@@ -800,7 +837,7 @@ class CheckTest(unittest.TestCase):
                 self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
 
     def test_gate_does_not_look_downstream(self):
-        # どの文書が揃えば先へ進めるかは呼ぶ側が決める
+        # ゲートが見るのは渡した文書とその上位の文書だけ。下位の文書は見ない
         self.repo.path(PLAN).unlink()
         for gate in specdoc.STAGES:
             with self.subTest(gate=gate):
@@ -869,6 +906,23 @@ class SplitTest(unittest.TestCase):
                 self.assertIn("受ける S の無い AC: AC-billing-001", messages)
         self.repo.path(self.child_path("billing")).unlink()
         self.assertIn(f"設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
+
+    def test_gate_of_child_plan_reaches_parent_design(self):
+        # 子の実装プランのゲートは、上流をたどって親の設計書にも当たる
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし", 要確認=question("plan")))
+        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
+        self.repo.write(PLAN, build_doc("plan", meta(upstream=[self.repo.ref(DESIGN)]), {}))
+        s = (
+            "- S-billing-001: まとめて発行する\n  - 受け入れ基準: AC-billing-001\n  - 種別: 正常\n  - 層: 結合\n"
+            "  - 前提: 未発行が 2 件\n  - 操作: 発行する\n  - 期待: 発行済みになる"
+        )
+        up = [self.repo.ref(self.child_path("billing")), self.repo.ref(PLAN)]
+        path = f"{SPEC}/billing/plan.md"
+        self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True))
+        self.assertEqual(self.repo.check(path), [])
+        self.assertEqual(
+            [(p, m) for p, _, m in self.repo.check(path, gate="plan")], [(DESIGN, "解決する工程が plan の要確認が残っている: Q-001")]
+        )
 
     def test_parent_plan_must_not_receive_child_ac(self):
         s = PLAN_BODIES["シナリオ"].split("\n- S-002")[0].replace("AC-001", "AC-billing-001")
@@ -1351,6 +1405,8 @@ class CliTest(unittest.TestCase):
     def test_check_gate_takes_english_stage_names(self):
         self.repo.path(PLAN).unlink()
         self.assertEqual(self.run_main("check", "--gate", "release", REQ, DESIGN), (0, "ok: 2 件\n"))
+        # 上位の文書も照合した数に入る
+        self.assertEqual(self.run_main("check", "--gate", "release", DESIGN), (0, "ok: 2 件\n"))
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
             self.run_main("check", "--gate", "実装", REQ)
         self.assertEqual(cm.exception.code, 2)
