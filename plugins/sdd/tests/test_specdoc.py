@@ -654,6 +654,24 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.check(PLAN), [])
         self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate="plan")], [(DESIGN, f"上流が approved でない: {REQ}")])
 
+    def test_gate_with_missing_upper_document(self):
+        # 2 つ上の文書が無いことは、1 つ上の文書の照合が出す。上位の文書をたどっても、同じエラーを重ねて出さない
+        self.repo.path(REQ).unlink()
+        self.assertEqual(self.repo.check(PLAN), [])
+        errors = self.repo.check(PLAN, gate="plan")
+        self.assertIn(f"上流のファイルが無い: {REQ}", [m for _, _, m in errors])
+        self.assertEqual(errors, self.repo.check(DESIGN))
+
+    def test_gate_with_unreadable_upper_document(self):
+        # 2 つ上の文書が読めないことは、1 つ上の文書の上流の照合と、その文書の照合が 1 回ずつ出す
+        lock(self, self.repo.path(REQ))
+        self.assertEqual(self.repo.check(PLAN), [])
+        errors = self.repo.check(PLAN, gate="plan")
+        messages = [m for _, _, m in errors]
+        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
+        self.assertTrue(any(m.startswith("読めない: ") for m in messages), messages)
+        self.assertEqual(errors, self.repo.check(DESIGN, REQ))
+
     def test_approved_doc_keeps_only_questions_for_later_stages(self):
         for rel, stage in ((REQ, "requirements"), (DESIGN, "design"), (PLAN, "plan")):
             with self.subTest(rel=rel, stage=stage):
