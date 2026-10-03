@@ -15,4 +15,4 @@ disable-model-invocation: true
 - 前の照合: `python3 <plugin>/scripts/specdoc.py check --gate <工程> <文書>`
 - 書くこと: 状態を `approved` にし、その次の行に `- 承認者: <名前>` を書く。代理なら `- 承認者: <名前>（代理）`
 - 後の照合: `python3 <plugin>/scripts/specdoc.py check <文書>`
-- commit メッセージ: `承認: <文書>`。代理の印は承認者の行に残すので、代理でも同じ
+- commit メッセージ: `承認: <文書>`。代理なら `承認（代理）: <文書>`
