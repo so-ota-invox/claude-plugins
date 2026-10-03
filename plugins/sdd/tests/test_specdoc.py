@@ -655,6 +655,22 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.check(PLAN), [])
         self.assertEqual(self.repo.notes(PLAN), [(PLAN, OPEN_QUESTION)])
 
+    def test_all_questions_are_listed(self):
+        second = "- Q-002: 取り消せる期限はあるか\n  - 確認先: 経理\n  - 期限: 2026-10-15"
+        self.repo.write_requirements(with_body(REQ_BODIES, 要確認=f"{QUESTION}\n{second}"))
+        self.assertEqual(self.repo.check(REQ), [])
+        self.assertEqual(self.repo.notes(REQ), [(REQ, OPEN_QUESTION), (REQ, "情報: 要確認が残っている: Q-002")])
+
+    def test_questions_are_not_listed_with_syntax_errors(self):
+        # 書式に誤りがある文書は、読み取った要確認を当てにできないので並べない
+        self.repo.write_requirements(with_body(REQ_BODIES, 要確認=QUESTION, 明示的除外事項="* x"))
+        self.assertEqual(self.repo.messages(REQ), ["箇条書きは - で書く"])
+        self.assertEqual(self.repo.notes(REQ), [])
+        # 上位の文書の書式の誤りは、その文書の check が出す
+        self.write_question(PLAN)
+        self.assertEqual(self.repo.check(PLAN), [])
+        self.assertEqual(self.repo.notes(PLAN), [(PLAN, OPEN_QUESTION)])
+
     def test_approved_flag(self):
         self.assertEqual(self.repo.messages(PLAN, approved=True), ["状態が approved でない"])
         self.assertEqual(self.repo.check(DESIGN, approved=True), [])

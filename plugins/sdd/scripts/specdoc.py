@@ -1333,7 +1333,9 @@ def check_approved(doc, err):
 
 
 def open_questions(doc):
-    """文書に残る要確認を、エラーにしない知らせとして (行, メッセージ) の列で返す。"""
+    """文書に残る要確認を、エラーにしない知らせとして (行, メッセージ) の列で返す。書式の誤りがあれば返さない。"""
+    if doc.syntax_errors:
+        return []
     return [(item.line, f"情報: 要確認が残っている: {q}") for q, item in doc.defs.items() if split_id(q)[0] == "Q"]
 
 

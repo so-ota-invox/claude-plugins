@@ -16,7 +16,7 @@ argument-hint: <文書のパス> [<指摘のファイル>]
 
 次の 1 往復を、最大 2 往復くり返す。
 
-1. `python3 <plugin>/scripts/specdoc.py check <文書>` が通るまで直し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す。文書を直しても消えないエラー（上流が approved でない、置き場が違うなど）や、直しても同じエラーが続くときは、HTML を出してからエラーを示して止まる
+1. `python3 <plugin>/scripts/specdoc.py check <文書>` が通る（終了コード 0 で終わる）まで直し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す。要確認の行（`情報:`）はエラーでなく、check を通すために直すものでない。文書を直しても消えないエラー（上流が approved でない、置き場が違うなど）や、直しても同じエラーが続くときは、HTML を出してからエラーを示して止まる
 2. `<plugin>/skills/review/SKILL.md` の手順で review する。1 往復目で指摘のファイルを渡されたときは、それも review に渡す
 3. `<文書名>.review.md` を読む。人が退けたと「仮定」に書いてある問題と同じ問題を指す P0 は、文言や行が違っても、無いものとして扱う（直さず、要確認に積まず、件数にも数えない）。P0 も P1 も無ければ往復を終える
 4. 反映する
