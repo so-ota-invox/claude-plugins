@@ -2,7 +2,7 @@
 """要件定義書・基本設計書・詳細設計書を型と照合し、HTML に変換する。
 
 使い方（<plugin> は sdd plugin のディレクトリの絶対パス）:
-  python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
+  python3 <plugin>/scripts/specdoc.py check [--approved] <ファイル>...
   python3 <plugin>/scripts/specdoc.py html <ファイル>...
   python3 <plugin>/scripts/specdoc.py proxy submit|approve|unapprove <ファイル> <名前>
 
@@ -33,7 +33,7 @@ META_KEYS = ("著者", "状態", "承認者", "凡例", "親", "上流", "元の
 STATES = ("draft", "review", "approved")
 # 状態を変えるコマンド。proxy は、名前の人がそのコマンドの決まった人か（本人）、そうでないか（代理）を出す
 PROXY_COMMANDS = ("submit", "approve", "unapprove")
-STAGES = ("requirements", "design", "plan", "release")
+STAGES = ("requirements", "design", "plan")
 SCENARIO_KINDS = ("正常", "異常", "境界")
 DIFF_KINDS = ("既存", "追加", "変更", "削除")
 TABLE_HEADER = ("意味", "型・長さ", "必須", "制約", "差分")
@@ -72,7 +72,7 @@ ID_FIELDS = {
     "R": {},
     "AC": {"要件": True},
     "S": {"受け入れ基準": True, "種別": True, "層": True, "前提": True, "操作": True, "期待": True},
-    "Q": {"推奨": False, "確認先": True, "期限": True, "解決する工程": True},
+    "Q": {"推奨": False, "確認先": True, "期限": True},
 }
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
@@ -714,7 +714,6 @@ class Doc:
         self.anchors = {}  # id(Item) -> 番号
         self.ac_reqs = {}  # AC -> [R]
         self.s_acs = {}  # S -> (行, [AC])
-        self.q_stage = {}  # Q -> (行, 解決する工程)
         self.refs = []  # [(行, 番号)]
         self.split = None  # 子の名前 -> [受ける R]
         self.tables = None  # テーブル名 -> カラム名の集合
@@ -1044,17 +1043,6 @@ class Doc:
             scenario_kind = fields.get("種別")
             if scenario_kind and scenario_kind[1] and scenario_kind[1] not in SCENARIO_KINDS:
                 err(scenario_kind[0].line, f"種別は {MSG_SEP.join(SCENARIO_KINDS)} のどれか")
-        elif typ == "Q":
-            stage = fields.get("解決する工程")
-            if stage and stage[1]:
-                allowed = STAGES[STAGES.index(self.doc_type):]
-                if stage[1] in allowed:
-                    self.q_stage[ident] = (item.line, stage[1])
-                elif stage[1] in STAGES:
-                    # 済んだ工程に関わる問いは、上流の文書の要確認にする
-                    err(stage[0].line, f"{self.doc_type}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか")
-                else:
-                    err(stage[0].line, f"解決する工程は {MSG_SEP.join(STAGES)} のどれか")
 
     def collect_refs(self):
         for line, tokens, item, blk in self.inlines():
@@ -1338,18 +1326,20 @@ def check_data_use(doc, err):
             err(line, f"テーブル定義に無いカラム: {table}.{col}")
 
 
-def check_gate(doc, gate, require_approved, err):
-    for q, (line, stage) in doc.q_stage.items():
-        if gate and STAGES.index(stage) <= STAGES.index(gate):
-            err(line, f"解決する工程が {stage} の要確認が残っている: {q}")
-        elif doc.state in ("review", "approved") and stage == doc.doc_type:
-            err(line, f"{doc.state} の文書に、解決する工程が {stage} の要確認が残っている: {q}")
-    if require_approved and doc.state != "approved":
+def check_approved(doc, err):
+    if doc.state != "approved":
         entry = doc.meta.get("状態")
         err(entry[0].line if entry else 1, "状態が approved でない")
 
 
-def check_doc(doc, gate=None, require_approved=False):
+def open_questions(doc):
+    """文書に残る要確認を、エラーにしない知らせとして (行, メッセージ) の列で返す。書式の誤りがあれば返さない。"""
+    if doc.syntax_errors:
+        return []
+    return [(item.line, f"情報: 要確認が残っている: {q}") for q, item in doc.defs.items() if split_id(q)[0] == "Q"]
+
+
+def check_doc(doc, require_approved=False):
     """文書 1 本の誤りを (行, メッセージ) の列で返す。書式の誤りがあれば書式だけを返す。"""
     if doc.syntax_errors:
         return list(doc.syntax_errors)
@@ -1370,7 +1360,8 @@ def check_doc(doc, gate=None, require_approved=False):
     check_upstream(doc, err)
     if doc.doc_type == "design":
         check_data_use(doc, err)
-    check_gate(doc, gate, require_approved, err)
+    if require_approved:
+        check_approved(doc, err)
     return errors
 
 
@@ -1582,22 +1573,21 @@ def expand(args):
     return files, errors
 
 
-def run_check(args, gate=None, require_approved=False):
-    """照合した文書のパスとエラーを返す。ゲートを渡すと、上位の文書も同じゲートで照合する。"""
+def run_check(args, require_approved=False):
+    """照合した文書のパス、エラー、終了コードに関わらない知らせ（渡した文書と上位の文書に残る要確認）を返す。"""
     ws = Workspace()
     files, errors = expand(args)
-    checked = list(files)
+    notes = []
+    listed = []
     for path in files:
         doc = ws.load(path)
-        errors.extend((path, line, msg) for line, msg in check_doc(doc, gate, require_approved))
-        if gate is None:
-            continue
-        # 上位の文書が approved であることは、その 1 つ下の文書の上流の照合が確かめる
-        for up in ancestors(doc):
-            if up.path not in checked:
-                checked.append(up.path)
-                errors.extend((up.path, line, msg) for line, msg in check_doc(up, gate))
-    return checked, errors
+        errors.extend((path, line, msg) for line, msg in check_doc(doc, require_approved))
+        # 上位の文書は照合しない。並べるのは要確認だけ
+        for d in [doc] + ancestors(doc):
+            if d.path not in listed:
+                listed.append(d.path)
+                notes.extend((d.path, line, msg) for line, msg in open_questions(d))
+    return files, errors, notes
 
 
 def write_output(path, data):
@@ -1708,10 +1698,7 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command")
     sub.required = True
-    p = sub.add_parser("check", help="型と照合する")
-    p.add_argument(
-        "--gate", choices=STAGES, help="渡した文書と上位の文書に、解決する工程がこの工程かそれより前の要確認が残っていればエラーにする"
-    )
+    p = sub.add_parser("check", help="型と照合し、渡した文書と上位の文書に残る要確認を並べる")
     p.add_argument("--approved", action="store_true", help="渡した文書の状態が approved でなければエラーにする")
     p.add_argument("paths", nargs="+", metavar="PATH")
     p = sub.add_parser("html", help="Markdown の隣に HTML を書き出す")
@@ -1723,8 +1710,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "check":
-        files, errors = run_check(args.paths, args.gate, args.approved)
-        for line in format_errors(errors):
+        files, errors, notes = run_check(args.paths, args.approved)
+        for line in format_errors(errors) + format_errors(notes):
             print(line)
         if errors:
             return 1

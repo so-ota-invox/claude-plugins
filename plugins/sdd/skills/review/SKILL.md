@@ -13,7 +13,7 @@ argument-hint: <文書のパス> [<指摘のファイル>]
 ## 手順
 
 1. 文書は 1 本だけ受け取る。2 本以上を渡されたら、1 本ずつ呼ぶよう伝えて止まる
-2. `python3 <plugin>/scripts/specdoc.py check <文書>` を走らせる。エラーがあれば、エラーをそのまま返して止まる
+2. `python3 <plugin>/scripts/specdoc.py check <文書>` を走らせる。終了コード 1 で終わったら、エラーをそのまま返して止まる。要確認の行（`情報:`）では止めない
 3. 指摘のファイルを渡されたら、4 へ進む。渡されなければ、`conformance-reviewer`・`fact-checker`・`adversarial-reviewer` を並列に起動する。3 体の報告は読まない
 4. `finding-verifier` を起動し、3 体の報告のファイルのパスか、渡された指摘のファイルのパスを渡す
 5. `finding-verifier` が返した件数と、指摘のファイル `<文書名>.review.md` のパスを返す
