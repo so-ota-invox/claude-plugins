@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # submit
 
-ユーザーがレビューに出すとはっきり示したときだけ動く。自分の判断でこの skill を使わない。`<plugin>` は sdd plugin のディレクトリ（この SKILL.md の 2 つ上）の絶対パス。
+ユーザーがレビューに出すとはっきり示したときだけ動く。自分の判断でこの skill を使わない。`<plugin>` は sdd plugin のディレクトリの絶対パス `${CLAUDE_PLUGIN_ROOT}`（置き換わっていなければ、この SKILL.md の 2 つ上）。
 
 著者が、自分の目で見てレビューに出せるところまで仕上がったと示す。`<plugin>/procedures/state.md` に従う。この skill で決まるもの:
 
