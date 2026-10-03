@@ -17,7 +17,7 @@ argument-hint: <チケット・依頼文・元の文書のパス、または書�
 
 ## 入口
 
-- 渡されたものが `<plugin>/procedures/draft.md` の「再開」に当たれば、入口の残りを飛ばして起草へ進む
+- 渡されたものが `<plugin>/procedures/draft.md` の「再開」に当たれば、入口の残りを飛ばして、下の「起草」のとおり `<plugin>/procedures/draft.md` に従う
 - 渡されたものを読む。チケットは使える手段（MCP など）で読み、読めなければ本文を貼ってもらう
 - 渡されたものが 2 件以上の対象に広がると分かったら、全部を対象にするか一部でよいかを聞き、1 件ずつ起草する
 - 置き場は `specs/<slug>/requirements.md`。`<slug>` は common.md の「置き場」に従って決める。`specs/<slug>/` がもうあれば、別の `<slug>` を聞く

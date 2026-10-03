@@ -143,19 +143,29 @@ class Repo:
 
     def docs(self):
         """specs/ の下の型の文書のパスを、名前の順に返す。specdoc.py はディレクトリを受け付けないので、渡すファイルをここで並べる。"""
-        return sorted(p.relative_to(self.root).as_posix() for p in self.path("specs").rglob("*.md") if p.name in specdoc.DOC_FILES)
+        return sorted(
+            p.relative_to(self.root).as_posix()
+            for p in self.path("specs").rglob("*.md")
+            if p.name in specdoc.DOC_FILES
+        )
 
     def check(self, *rels, gate=None, approved=False):
         paths = [str(self.path(r)) for r in rels or self.docs()]
         _, errors = specdoc.run_check(paths, gate, approved)
-        return [(p.relative_to(self.root).as_posix(), line, msg) for p, line, msg in errors]
+        return [
+            (p.relative_to(self.root).as_posix(), line, msg) for p, line, msg in errors
+        ]
 
     def messages(self, *rels, **kwargs):
         return [msg for _, _, msg in self.check(*rels, **kwargs)]
 
     def case_error(self, rel):
         """実際の名前と大文字・小文字だけが違うパスのエラー。区別しないファイルシステムでは、そのパスでも開ける。"""
-        return "パスの大文字・小文字が実際の名前と違う" if self.path(rel).is_file() else "ファイルが無い"
+        return (
+            "パスの大文字・小文字が実際の名前と違う"
+            if self.path(rel).is_file()
+            else "ファイルが無い"
+        )
 
     def write_requirements(self, bodies=REQ_BODIES, state="approved"):
         self.write(REQ, build_doc("requirements", meta(state), bodies))
@@ -198,12 +208,19 @@ class TemplateTest(unittest.TestCase):
                 self.assertEqual(len(texts), len(set(texts)))
                 self.assertLessEqual(tpl.parent_only, set(texts))
         self.assertEqual(
-            specdoc.Template("design").parent_only, {"サブ機能分割", "データ設計", "インターフェース設計", "主要な用語"}
+            specdoc.Template("design").parent_only,
+            {"サブ機能分割", "データ設計", "インターフェース設計", "主要な用語"},
         )
 
     def test_child_design_drops_parent_only_headings_and_their_children(self):
         texts = [text for _, text in specdoc.Template("design").expected(True)]
-        for dropped in ("サブ機能分割", "データ設計", "テーブル定義", "公開 API", "主要な用語"):
+        for dropped in (
+            "サブ機能分割",
+            "データ設計",
+            "テーブル定義",
+            "公開 API",
+            "主要な用語",
+        ):
             self.assertNotIn(dropped, texts)
         self.assertIn("影響範囲", texts)
         self.assertIn("受け入れ基準", texts)
@@ -211,14 +228,26 @@ class TemplateTest(unittest.TestCase):
     def test_research_scope_closes_design_and_plan(self):
         for doc_type in ("design", "plan"):
             with self.subTest(doc_type=doc_type):
-                self.assertEqual(specdoc.Template(doc_type).headings[-1], (2, "調査範囲"))
-        self.assertNotIn("調査範囲", [text for _, text in specdoc.Template("requirements").headings])
+                self.assertEqual(
+                    specdoc.Template(doc_type).headings[-1], (2, "調査範囲")
+                )
+        self.assertNotIn(
+            "調査範囲", [text for _, text in specdoc.Template("requirements").headings]
+        )
 
 
 class HelperTest(unittest.TestCase):
     def test_repo_relative_path_form(self):
         # html が上流と親をリンクにするときの判定
-        for rel in ("/specs/x.md", "specs//x.md", "specs/./x.md", "specs/../x.md", "specs\\x.md", "specs/x/", ""):
+        for rel in (
+            "/specs/x.md",
+            "specs//x.md",
+            "specs/./x.md",
+            "specs/../x.md",
+            "specs\\x.md",
+            "specs/x/",
+            "",
+        ):
             with self.subTest(rel=rel):
                 self.assertTrue(specdoc.bad_repo_path(rel))
         self.assertFalse(specdoc.bad_repo_path(REQ))
@@ -229,7 +258,9 @@ class HelperTest(unittest.TestCase):
     def test_format_errors_orders_by_file_then_line_without_duplicates(self):
         a, b = Path("a.md"), Path("b.md")
         errors = [(b, 2, "x"), (a, 1, "y"), (b, 1, "z"), (b, 2, "x")]
-        self.assertEqual(specdoc.format_errors(errors), ["b.md:1: z", "b.md:2: x", "a.md:1: y"])
+        self.assertEqual(
+            specdoc.format_errors(errors), ["b.md:1: z", "b.md:2: x", "a.md:1: y"]
+        )
 
 
 class CheckTest(unittest.TestCase):
@@ -248,7 +279,9 @@ class CheckTest(unittest.TestCase):
             self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q), state)
 
     def set_ac_reqs(self, value):
-        acs = DESIGN_BODIES["受け入れ基準"].replace("  - 要件: R-001、R-003", f"  - 要件: {value}")
+        acs = DESIGN_BODIES["受け入れ基準"].replace(
+            "  - 要件: R-001、R-003", f"  - 要件: {value}"
+        )
         self.repo.write_design(with_body(DESIGN_BODIES, 受け入れ基準=acs))
 
     def test_valid_set_passes(self):
@@ -262,19 +295,34 @@ class CheckTest(unittest.TestCase):
             ("---", "区切り線は使えない"),
             ("x\n===", "見出しは # で書く"),
             ("#### x", "見出しは ### まで"),
-            ("a *b* c", "コードの外で * を使わない（太字は ** で囲む。記号として書くならコードで囲む）"),
-            ("snake_case は可、_x は不可", "コードの外で語の端に _ を置かない（コードで囲む）"),
+            (
+                "a *b* c",
+                "コードの外で * を使わない（太字は ** で囲む。記号として書くならコードで囲む）",
+            ),
+            (
+                "snake_case は可、_x は不可",
+                "コードの外で語の端に _ を置かない（コードで囲む）",
+            ),
             ("~~x~~", "打ち消し線は使えない"),
             ("a\\b", "バックスラッシュは使えない（コードで囲む）"),
             ("&amp;", "文字参照は使えない。文字をそのまま書く"),
             ("a<br>b", "HTML は使えない（< を記号として書くならコードで囲む）"),
             ("![図](a.png)", "画像は使えない"),
-            ("[文字](a b)", "リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない"),
+            (
+                "[文字](a b)",
+                "リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない",
+            ),
             ("`x", "` の対応が取れていない"),
             ("```\nx\n```", "コードブロックに言語名を書く"),
             ("```text\nx", "コードブロックが閉じていない"),
-            ("| a |\n| :-: |", "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする"),
-            ("| a |\n| --- |\n| b | c |", "表の列の数が見出し行と違う（セルの中に | を書かない）"),
+            (
+                "| a |\n| :-: |",
+                "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする",
+            ),
+            (
+                "| a |\n| --- |\n| b | c |",
+                "表の列の数が見出し行と違う（セルの中に | を書かない）",
+            ),
             ("- a\n    - b", "箇条の入れ子は 2 段まで。字下げは空白 2 つにする"),
             ("-", "空の箇条"),
             ("- # x", "箇条の先頭に書式の記号を置かない"),
@@ -290,7 +338,9 @@ class CheckTest(unittest.TestCase):
                 self.assertIn(expected, self.repo.messages(REQ))
 
     def test_syntax_errors_hide_other_errors(self):
-        text = build_doc("requirements", meta(), with_body(REQ_BODIES, 明示的除外事項="* x"))
+        text = build_doc(
+            "requirements", meta(), with_body(REQ_BODIES, 明示的除外事項="* x")
+        )
         self.repo.write(REQ, text.replace("## リリース日\n\nなし\n\n", ""))
         self.assertEqual(self.repo.messages(REQ), ["箇条書きは - で書く"])
 
@@ -312,7 +362,9 @@ class CheckTest(unittest.TestCase):
         lines = self.repo.read(REQ).split("\n")
         self.assertEqual(
             sorted(self.repo.check(REQ)),
-            sorted([(REQ, at, cr), (REQ, lines.index("* x") + 1, "箇条書きは - で書く")]),
+            sorted(
+                [(REQ, at, cr), (REQ, lines.index("* x") + 1, "箇条書きは - で書く")]
+            ),
         )
 
     def test_lone_cr_at_the_end_and_with_crlf(self):
@@ -326,11 +378,16 @@ class CheckTest(unittest.TestCase):
         mixed = text.replace("## 仮定\n\nなし", "## 仮定\n\nなし\rなし")
         at = mixed.split("\n").index("なし\rなし") + 1
         self.repo.write(REQ, mixed.replace("\n", "\r\n"))
-        self.assertEqual(sorted(self.repo.check(REQ)), sorted([(REQ, 1, "改行は LF にする"), (REQ, at, cr)]))
+        self.assertEqual(
+            sorted(self.repo.check(REQ)),
+            sorted([(REQ, 1, "改行は LF にする"), (REQ, at, cr)]),
+        )
 
     def test_title_needs_subject(self):
         self.repo.replace(REQ, "# 要件定義書: 請求書の一括発行", "# 要件定義書")
-        self.assertEqual(self.repo.check(REQ), [(REQ, 1, "1 行目は `# 要件定義書: 件名` の形で書く")])
+        self.assertEqual(
+            self.repo.check(REQ), [(REQ, 1, "1 行目は `# 要件定義書: 件名` の形で書く")]
+        )
 
     def test_missing_and_extra_headings(self):
         self.repo.replace(REQ, "## リリース日\n\nなし\n\n", "")
@@ -341,19 +398,40 @@ class CheckTest(unittest.TestCase):
 
     def test_empty_section_must_say_none(self):
         self.repo.replace(REQ, "## リリース日\n\nなし\n\n", "## リリース日\n\n")
-        self.assertEqual(self.repo.messages(REQ), ["本文が空: ## リリース日。書く内容が無ければ「なし」と書く"])
+        self.assertEqual(
+            self.repo.messages(REQ),
+            ["本文が空: ## リリース日。書く内容が無ければ「なし」と書く"],
+        )
 
     def test_nothing_between_meta_and_first_section(self):
         self.repo.replace(REQ, "\n## 背景・目的", "\n補足\n\n## 背景・目的")
-        self.assertEqual(self.repo.messages(REQ), ["管理情報と最初の ## の間には何も書かない"])
+        self.assertEqual(
+            self.repo.messages(REQ), ["管理情報と最初の ## の間には何も書かない"]
+        )
 
     def test_meta_rules(self):
         cases = [
-            ("- 著者: 山田\n- 状態: approved", "- 状態: approved\n- 著者: 山田", "管理情報の順序が違う（著者・状態・承認者・凡例・親・上流・元の文書 の順）"),
+            (
+                "- 著者: 山田\n- 状態: approved",
+                "- 状態: approved\n- 著者: 山田",
+                "管理情報の順序が違う（著者・状態・承認者・凡例・親・上流・元の文書 の順）",
+            ),
             ("- 承認者: 佐藤\n", "", "approved のときは承認者を書く"),
-            ("- 状態: approved", "- 状態: wip", "状態は draft・review・approved のどれか"),
-            ("（例: AC-billing-001）", "", "凡例の文言が違う。common.md の文言をそのまま書く"),
-            ("- 承認者: 佐藤\n", "- 承認者: 佐藤\n- 担当: 鈴木\n", "管理情報に使えない項目: 担当（使えるのは 著者・状態・承認者・凡例・親・上流・元の文書）"),
+            (
+                "- 状態: approved",
+                "- 状態: wip",
+                "状態は draft・review・approved のどれか",
+            ),
+            (
+                "（例: AC-billing-001）",
+                "",
+                "凡例の文言が違う。common.md の文言をそのまま書く",
+            ),
+            (
+                "- 承認者: 佐藤\n",
+                "- 承認者: 佐藤\n- 担当: 鈴木\n",
+                "管理情報に使えない項目: 担当（使えるのは 著者・状態・承認者・凡例・親・上流・元の文書）",
+            ),
             ("- 著者: 山田\n", "", "管理情報の項目が無い: 著者"),
             ("- 凡例:", f"- 親: {REQ}\n- 凡例:", "親は子の文書だけに書く"),
         ]
@@ -370,12 +448,23 @@ class CheckTest(unittest.TestCase):
             with self.subTest(state=state):
                 self.repo.write(REQ, original)
                 self.repo.replace(REQ, "- 状態: approved", f"- 状態: {state}")
-                self.assertEqual(self.repo.messages(REQ), ["承認者は approved のときだけ書く"])
+                self.assertEqual(
+                    self.repo.messages(REQ), ["承認者は approved のときだけ書く"]
+                )
+
+    def test_approver_by_proxy(self):
+        # 代理で承認したときは、名前の後に「（代理）」を付けて書ける
+        self.repo.replace(REQ, "- 承認者: 佐藤", "- 承認者: 佐藤（代理）")
+        self.assertEqual(self.repo.check(REQ), [])
 
     def test_wrong_or_missing_state_does_not_add_an_approver_error(self):
         # 状態の誤りが 1 つなら、承認者のエラーを重ねず 1 件にする
         cases = [
-            ("- 状態: approved", "- 状態: aproved", "状態は draft・review・approved のどれか"),
+            (
+                "- 状態: approved",
+                "- 状態: aproved",
+                "状態は draft・review・approved のどれか",
+            ),
             ("- 状態: approved\n", "", "管理情報の項目が無い: 状態"),
         ]
         original = self.repo.read(REQ)
@@ -386,52 +475,86 @@ class CheckTest(unittest.TestCase):
                 self.assertEqual(self.repo.messages(REQ), [expected])
 
     def test_requirements_have_no_upstream(self):
-        self.repo.write(REQ, build_doc("requirements", meta(upstream=["specs/x.md"]), REQ_BODIES))
+        self.repo.write(
+            REQ, build_doc("requirements", meta(upstream=["specs/x.md"]), REQ_BODIES)
+        )
         self.assertIn("要件定義書には上流を書かない", self.repo.messages(REQ))
 
     def test_design_needs_upstream(self):
         self.repo.write(DESIGN, build_doc("design", meta(), DESIGN_BODIES))
-        self.assertEqual(self.repo.check(DESIGN), [(DESIGN, 3, "管理情報の項目が無い: 上流")])
+        self.assertEqual(
+            self.repo.check(DESIGN), [(DESIGN, 3, "管理情報の項目が無い: 上流")]
+        )
 
     def test_meta_must_follow_title(self):
         self.repo.write(REQ, build_doc("requirements", [], REQ_BODIES))
-        self.assertEqual(self.repo.check(REQ), [(REQ, 4, "見出しの直後に管理情報（`- 著者: …`）を書く")])
+        self.assertEqual(
+            self.repo.check(REQ),
+            [(REQ, 4, "見出しの直後に管理情報（`- 著者: …`）を書く")],
+        )
 
     def test_duplicate_id(self):
-        bodies = with_body(REQ_BODIES, 非機能要件="- R-003: 1,000 件を 60 秒以内に発行する\n- R-002: 重ねた番号")
+        bodies = with_body(
+            REQ_BODIES,
+            非機能要件="- R-003: 1,000 件を 60 秒以内に発行する\n- R-002: 重ねた番号",
+        )
         self.repo.write_requirements(bodies)
-        first = self.repo.read(REQ).split("\n").index("- R-002: 発行済みの請求書は選べない") + 1
-        self.assertEqual(self.repo.messages(REQ), [f"番号が重なっている: R-002（{first} 行目）"])
+        first = (
+            self.repo.read(REQ).split("\n").index("- R-002: 発行済みの請求書は選べない")
+            + 1
+        )
+        self.assertEqual(
+            self.repo.messages(REQ), [f"番号が重なっている: R-002（{first} 行目）"]
+        )
 
     def test_definition_form_in_definition_section(self):
         bodies = with_body(DESIGN_BODIES, 受け入れ基準="- 請求書を発行できる")
         self.repo.write_design(bodies)
-        self.assertIn("一番上の箇条は `AC-001: 本文` の形で書く", self.repo.messages(DESIGN))
+        self.assertIn(
+            "一番上の箇条は `AC-001: 本文` の形で書く", self.repo.messages(DESIGN)
+        )
 
     def test_id_bullet_outside_definition_section_is_a_reference(self):
-        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- R-003: 60 秒を守るため非同期で発行する"))
+        self.repo.write_design(
+            with_body(
+                DESIGN_BODIES, 設計判断="- R-003: 60 秒を守るため非同期で発行する"
+            )
+        )
         self.assertEqual(self.repo.check(DESIGN), [])
-        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- R-009 に合わせて同期で発行する"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 設計判断="- R-009 に合わせて同期で発行する")
+        )
         self.assertEqual(self.repo.messages(DESIGN), ["定義の無い番号: R-009"])
 
     def test_ids_in_code_are_not_references(self):
-        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="`R-009` は番号ではない"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 設計判断="`R-009` は番号ではない")
+        )
         self.assertEqual(self.repo.check(DESIGN), [])
 
     def test_references_do_not_reach_downstream(self):
-        expected = ["下流か別の子の文書の番号は参照しない: AC-001", "下流か別の子の文書の番号は参照しない: S-001"]
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="AC-001 と S-001 は扱わない"))
+        expected = [
+            "下流か別の子の文書の番号は参照しない: AC-001",
+            "下流か別の子の文書の番号は参照しない: S-001",
+        ]
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項="AC-001 と S-001 は扱わない")
+        )
         self.assertEqual(self.repo.messages(REQ), expected)
         self.repo.path(DESIGN).unlink()
         self.repo.path(PLAN).unlink()
         self.assertEqual(self.repo.messages(REQ), expected)
         self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="S-001 で確かめる"))
-        self.assertEqual(self.repo.messages(DESIGN), ["下流か別の子の文書の番号は参照しない: S-001"])
+        self.assertEqual(
+            self.repo.messages(DESIGN), ["下流か別の子の文書の番号は参照しない: S-001"]
+        )
 
     def test_questions_are_not_referenced_from_downstream(self):
         # Q は文書ごとに 001 から数えるので、上流の文書にだけある Q-001 は参照できない
         self.write_question(REQ, "design", "approved")
-        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- Q-001 の回答で締め日を決める"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 設計判断="- Q-001 の回答で締め日を決める")
+        )
         self.assertEqual(self.repo.messages(DESIGN), ["定義の無い番号: Q-001"])
 
     def test_spec_dir_name(self):
@@ -460,7 +583,10 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(DESIGN), ["受ける AC の無い R: R-002"])
 
     def test_ac_may_receive_no_requirement(self):
-        acs = DESIGN_BODIES["受け入れ基準"] + "\n- AC-003: 既存の単票発行は変わらない\n  - 要件: なし"
+        acs = (
+            DESIGN_BODIES["受け入れ基準"]
+            + "\n- AC-003: 既存の単票発行は変わらない\n  - 要件: なし"
+        )
         self.repo.write_design(with_body(DESIGN_BODIES, 受け入れ基準=acs))
         self.assertEqual(self.repo.check(DESIGN), [])
 
@@ -481,18 +607,25 @@ class CheckTest(unittest.TestCase):
         )
         self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=scenarios))
         messages = self.repo.messages(PLAN)
-        self.assertIn("S-001 の下に書けるのは 受け入れ基準・種別・層・前提・操作・期待", messages)
+        self.assertIn(
+            "S-001 の下に書けるのは 受け入れ基準・種別・層・前提・操作・期待", messages
+        )
         self.assertIn("S-001 の下の項目が無い: 期待", messages)
         self.assertIn("種別は 正常・異常・境界 のどれか", messages)
 
     def test_scenario_field_repeated_or_empty(self):
         cases = [
-            ("  - 期待: 2 件が発行済みになる\n  - 期待: 一覧に出ない\n", "S-001 の下の項目が重なっている: 期待"),
+            (
+                "  - 期待: 2 件が発行済みになる\n  - 期待: 一覧に出ない\n",
+                "S-001 の下の項目が重なっている: 期待",
+            ),
             ("  - 期待:\n", "S-001 の下の項目が空: 期待"),
         ]
         for new, expected in cases:
             with self.subTest(expected=expected):
-                scenarios = PLAN_BODIES["シナリオ"].replace("  - 期待: 2 件が発行済みになる\n", new)
+                scenarios = PLAN_BODIES["シナリオ"].replace(
+                    "  - 期待: 2 件が発行済みになる\n", new
+                )
                 self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=scenarios))
                 self.assertEqual(self.repo.messages(PLAN), [expected])
 
@@ -501,11 +634,17 @@ class CheckTest(unittest.TestCase):
         self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q))
         messages = self.repo.messages(REQ)
         self.assertIn("Q-001 の下の項目が無い: 期限", messages)
-        self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
+        self.assertIn(
+            "解決する工程は requirements・design・plan・release のどれか", messages
+        )
 
     def test_question_stage_must_not_precede_the_document(self):
         cases = [
-            (DESIGN, "requirements", "design.md の解決する工程は design・plan・release のどれか"),
+            (
+                DESIGN,
+                "requirements",
+                "design.md の解決する工程は design・plan・release のどれか",
+            ),
             (PLAN, "requirements", "plan.md の解決する工程は plan・release のどれか"),
             (PLAN, "design", "plan.md の解決する工程は plan・release のどれか"),
         ]
@@ -524,7 +663,9 @@ class CheckTest(unittest.TestCase):
         for state in ("draft", "review"):
             with self.subTest(state=state):
                 self.repo.write_requirements(state=state)
-                self.assertEqual(self.repo.messages(DESIGN), [f"上流が approved でない: {REQ}"])
+                self.assertEqual(
+                    self.repo.messages(DESIGN), [f"上流が approved でない: {REQ}"]
+                )
 
     def test_required_upstream(self):
         self.repo.write(DESIGN, build_doc("design", meta(upstream=[]), DESIGN_BODIES))
@@ -538,12 +679,20 @@ class CheckTest(unittest.TestCase):
         other = "specs/13-other/requirements.md"
         self.repo.write(guide, "x\n")
         self.repo.write(other, self.repo.read(REQ))
-        wrong = [f"{SPEC}/Requirements.md", f"../{REQ}", f"{SPEC}/{'a' * 300}.md", f"{REQ}@0123456789ab"]
+        wrong = [
+            f"{SPEC}/Requirements.md",
+            f"../{REQ}",
+            f"{SPEC}/{'a' * 300}.md",
+            f"{REQ}@0123456789ab",
+        ]
         ups = [REQ, guide, other] + wrong
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=ups + [REQ]), DESIGN_BODIES))
+        self.repo.write(
+            DESIGN, build_doc("design", meta(upstream=ups + [REQ]), DESIGN_BODIES)
+        )
         self.assertEqual(
             self.repo.messages(DESIGN),
-            [f"上流に書けるのは {REQ} だけ: {rel}" for rel in [guide, other] + wrong] + [f"上流が重なっている: {REQ}"],
+            [f"上流に書けるのは {REQ} だけ: {rel}" for rel in [guide, other] + wrong]
+            + [f"上流が重なっている: {REQ}"],
         )
 
     def test_missing_upstream_file(self):
@@ -563,22 +712,30 @@ class CheckTest(unittest.TestCase):
 
     def test_link_must_be_nfc(self):
         self.repo.write(f"{SPEC}/mocks/ガイド.html", "<!DOCTYPE html>\n")
-        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- [ガイド](mocks/ガイド.html)"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 画面設計="- [ガイド](mocks/ガイド.html)")
+        )
         self.assertEqual(self.repo.check(DESIGN), [])
         nfd = unicodedata.normalize("NFD", "mocks/ガイド.html")
         self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=f"- [ガイド]({nfd})"))
-        self.assertEqual(self.repo.messages(DESIGN), [f"リンク先の文字を NFC にする: {nfd}"])
+        self.assertEqual(
+            self.repo.messages(DESIGN), [f"リンク先の文字を NFC にする: {nfd}"]
+        )
 
     def test_names_must_match_case(self):
         # 大文字・小文字を区別しない macOS でも、区別する Linux と同じく見つからない
         for dest in ("mocks/List.html", "Mocks/list.html"):
             with self.subTest(dest=dest):
-                self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=f"- 一覧画面: [モック]({dest})"))
-                self.assertEqual(self.repo.messages(DESIGN), [f"リンク先が無い: {dest}"])
+                self.repo.write_design(
+                    with_body(DESIGN_BODIES, 画面設計=f"- 一覧画面: [モック]({dest})")
+                )
+                self.assertEqual(
+                    self.repo.messages(DESIGN), [f"リンク先が無い: {dest}"]
+                )
 
     def test_document_path_case_must_match(self):
-        self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
-        typed = "specs/proj-12-invoice/requirements.md"
+        self.repo.write("specs/Invoice-copy/requirements.md", self.repo.read(REQ))
+        typed = "specs/invoice-copy/requirements.md"
         self.assertEqual(self.repo.messages(typed), [self.repo.case_error(typed)])
 
     def test_document_name_case_must_match(self):
@@ -591,8 +748,14 @@ class CheckTest(unittest.TestCase):
         # 置き場を 1 段ずつ照らせないときは、トレースバックにせず 1 行のエラーにする。
         # 実際には、途中のディレクトリに実行の権限だけがあり、中のファイルは開けるが一覧を読めないときに起こる。
         # root は権限に関わらず一覧を読めるので、権限を外す代わりに例外を差し替え、root で実行しても確かめる
-        with mock.patch.object(specdoc, "exact_kind", side_effect=PermissionError(errno.EACCES, "Permission denied")):
-            self.assertEqual(self.repo.messages(REQ), ["パスを調べられない: Permission denied"])
+        with mock.patch.object(
+            specdoc,
+            "exact_kind",
+            side_effect=PermissionError(errno.EACCES, "Permission denied"),
+        ):
+            self.assertEqual(
+                self.repo.messages(REQ), ["パスを調べられない: Permission denied"]
+            )
 
     def test_os_error_without_errno(self):
         # errno の無い OSError は strerror が None なので、例外の文字列を出す
@@ -604,8 +767,13 @@ class CheckTest(unittest.TestCase):
     def test_too_long_names_are_missing(self):
         # Python 3.12 までの Path.exists は ENAMETOOLONG で例外を送る
         name = "a" * 300 + ".md"
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
-        self.assertEqual(self.repo.messages(REQ), [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"])
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)")
+        )
+        self.assertEqual(
+            self.repo.messages(REQ),
+            [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"],
+        )
 
     def test_gate(self):
         # ゲートは、解決する工程がそのゲートかそれより前の要確認で止まる
@@ -621,7 +789,11 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(self.repo.check(rel), [])
             for gate in specdoc.STAGES:
                 with self.subTest(stage=stage, gate=gate):
-                    expected = [f"解決する工程が {stage} の要確認が残っている: Q-001"] if gate in stopping else []
+                    expected = (
+                        [f"解決する工程が {stage} の要確認が残っている: Q-001"]
+                        if gate in stopping
+                        else []
+                    )
                     self.assertEqual(self.repo.messages(rel, gate=gate), expected)
 
     def test_gate_also_checks_upper_documents(self):
@@ -632,8 +804,14 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.check(PLAN), [])
         for gate in specdoc.STAGES:
             with self.subTest(gate=gate):
-                expected = [(REQ, "解決する工程が plan の要確認が残っている: Q-001")] if gate in ("plan", "release") else []
-                self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate=gate)], expected)
+                expected = (
+                    [(REQ, "解決する工程が plan の要確認が残っている: Q-001")]
+                    if gate in ("plan", "release")
+                    else []
+                )
+                self.assertEqual(
+                    [(p, m) for p, _, m in self.repo.check(PLAN, gate=gate)], expected
+                )
 
     def test_gate_requires_every_upper_document_to_be_approved(self):
         # 2 つ上の文書が approved でないことは、1 つ上の文書の上流の照合で止まる
@@ -641,7 +819,10 @@ class CheckTest(unittest.TestCase):
         self.repo.write_design()
         self.repo.write_plan()
         self.assertEqual(self.repo.check(PLAN), [])
-        self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate="plan")], [(DESIGN, f"上流が approved でない: {REQ}")])
+        self.assertEqual(
+            [(p, m) for p, _, m in self.repo.check(PLAN, gate="plan")],
+            [(DESIGN, f"上流が approved でない: {REQ}")],
+        )
 
     def test_gate_with_missing_upper_document(self):
         # 2 つ上の文書が無いことは、1 つ上の文書の照合が出す。上位の文書をたどっても、同じエラーを重ねて出さない
@@ -657,18 +838,28 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.check(PLAN), [])
         errors = self.repo.check(PLAN, gate="plan")
         messages = [m for _, _, m in errors]
-        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
+        self.assertTrue(
+            any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages),
+            messages,
+        )
         self.assertTrue(any(m.startswith("読めない: ") for m in messages), messages)
         self.assertEqual(errors, self.repo.check(DESIGN, REQ))
 
     def test_review_and_approved_docs_keep_only_questions_for_later_stages(self):
         for state in ("review", "approved"):
-            for rel, stage in ((REQ, "requirements"), (DESIGN, "design"), (PLAN, "plan")):
+            for rel, stage in (
+                (REQ, "requirements"),
+                (DESIGN, "design"),
+                (PLAN, "plan"),
+            ):
                 with self.subTest(state=state, rel=rel, stage=stage):
                     self.repo.write_valid()
                     self.write_question(rel, stage, state)
                     self.assertEqual(
-                        self.repo.messages(rel), [f"{state} の文書に、解決する工程が {stage} の要確認が残っている: Q-001"]
+                        self.repo.messages(rel),
+                        [
+                            f"{state} の文書に、解決する工程が {stage} の要確認が残っている: Q-001"
+                        ],
                     )
             for rel, stage in ((REQ, "design"), (DESIGN, "plan"), (PLAN, "release")):
                 with self.subTest(state=state, rel=rel, stage=stage):
@@ -677,14 +868,25 @@ class CheckTest(unittest.TestCase):
                     self.assertEqual(self.repo.check(rel), [])
 
     def test_approved_flag(self):
-        self.assertEqual(self.repo.messages(PLAN, approved=True), ["状態が approved でない"])
+        self.assertEqual(
+            self.repo.messages(PLAN, approved=True), ["状態が approved でない"]
+        )
         self.assertEqual(self.repo.check(DESIGN, approved=True), [])
 
     def test_table_definition(self):
         cases = [
-            (TABLES.replace("型・長さ", "型", 1), "テーブル定義の見出し行は | `テーブル名` | 意味 | 型・長さ | 必須 | 制約 | 差分 | にする"),
-            (TABLES.replace("| 追加 |", "| 新規 |"), "差分は 既存・追加・変更・削除 のどれか"),
-            (TABLES.replace("| `status` |", "| status |"), "1 つ目のセルにカラム名をコードで書く"),
+            (
+                TABLES.replace("型・長さ", "型", 1),
+                "テーブル定義の見出し行は | `テーブル名` | 意味 | 型・長さ | 必須 | 制約 | 差分 | にする",
+            ),
+            (
+                TABLES.replace("| 追加 |", "| 新規 |"),
+                "差分は 既存・追加・変更・削除 のどれか",
+            ),
+            (
+                TABLES.replace("| `status` |", "| status |"),
+                "1 つ目のセルにカラム名をコードで書く",
+            ),
         ]
         for tables, expected in cases:
             with self.subTest(expected=expected):
@@ -693,32 +895,63 @@ class CheckTest(unittest.TestCase):
 
     def test_data_use(self):
         cases = [
-            ("- 一括発行\n  - 書く: `invoices.total`", "テーブル定義に無いカラム: invoices.total"),
-            ("- 一括発行\n  - 書く: invoices.status", "`テーブル.カラム` を「、」で区切って書く"),
-            ("- 一括発行\n  - 消す: `invoices.status`", "処理の下に書けるのは 書く・読む"),
+            (
+                "- 一括発行\n  - 書く: `invoices.total`",
+                "テーブル定義に無いカラム: invoices.total",
+            ),
+            (
+                "- 一括発行\n  - 書く: invoices.status",
+                "`テーブル.カラム` を「、」で区切って書く",
+            ),
+            (
+                "- 一括発行\n  - 消す: `invoices.status`",
+                "処理の下に書けるのは 書く・読む",
+            ),
             ("- 一括発行", "処理の下に 書く・読む の箇条を 1 つ以上書く"),
-            (DESIGN_BODIES["読み書きするデータ"] + "\n  - 読む: `customers.name`", "処理の下の項目が重なっている: 読む"),
+            (
+                DESIGN_BODIES["読み書きするデータ"] + "\n  - 読む: `customers.name`",
+                "処理の下の項目が重なっている: 読む",
+            ),
         ]
         for body, expected in cases:
             with self.subTest(expected=expected):
-                self.repo.write_design(with_body(DESIGN_BODIES, 読み書きするデータ=body))
+                self.repo.write_design(
+                    with_body(DESIGN_BODIES, 読み書きするデータ=body)
+                )
                 self.assertEqual(self.repo.messages(DESIGN), [expected])
 
     def test_link_target_must_exist(self):
-        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)"))
-        self.assertEqual(self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"])
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)")
+        )
+        self.assertEqual(
+            self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"]
+        )
 
     def test_link_scheme(self):
-        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- [外](https://example.com) と [悪](javascript:x)"))
-        self.assertEqual(self.repo.messages(DESIGN), ["リンク先は相対パスか http・https・mailto にする: javascript:x"])
+        self.repo.write_design(
+            with_body(
+                DESIGN_BODIES,
+                画面設計="- [外](https://example.com) と [悪](javascript:x)",
+            )
+        )
+        self.assertEqual(
+            self.repo.messages(DESIGN),
+            ["リンク先は相対パスか http・https・mailto にする: javascript:x"],
+        )
 
     def test_unsplit_statement(self):
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割="なし"))
-        self.assertEqual(self.repo.messages(DESIGN), ["分割しないときは「分割しない。理由: …」と書く"])
+        self.assertEqual(
+            self.repo.messages(DESIGN),
+            ["分割しないときは「分割しない。理由: …」と書く"],
+        )
 
     def test_location(self):
         self.repo.write("docs/design.md", self.repo.read(DESIGN))
-        self.assertEqual(self.repo.messages("docs/design.md"), ["specs/<slug>/ の下に置く"])
+        self.assertEqual(
+            self.repo.messages("docs/design.md"), ["specs/<slug>/ の下に置く"]
+        )
         self.repo.write(f"{SPEC}/billing/requirements.md", self.repo.read(REQ))
         self.assertEqual(
             self.repo.messages(f"{SPEC}/billing/requirements.md"),
@@ -728,13 +961,20 @@ class CheckTest(unittest.TestCase):
     def test_specs_must_be_at_the_repository_root(self):
         expected = ["specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く"]
         text = self.repo.read(REQ)
-        for rel in ("docs/specs/12-invoice/requirements.md", f"{SPEC}/specs/13-other/requirements.md"):
+        for rel in (
+            "docs/specs/12-invoice/requirements.md",
+            f"{SPEC}/specs/13-other/requirements.md",
+        ):
             with self.subTest(rel=rel):
                 self.repo.write(rel, text)
                 self.assertEqual(self.repo.messages(rel), expected)
                 # proxy も、置き場の合わない文書を受け付けない
-                result, errors = specdoc.run_proxy("submit", str(self.repo.path(rel)), "山田")
-                self.assertEqual((result, [msg for _, _, msg in errors]), (None, expected))
+                result, errors = specdoc.run_proxy(
+                    "submit", str(self.repo.path(rel)), "山田"
+                )
+                self.assertEqual(
+                    (result, [msg for _, _, msg in errors]), (None, expected)
+                )
         self.repo.path(".git").rmdir()
         self.assertEqual(self.repo.messages(REQ), expected)
         # worktree と submodule では .git がファイル
@@ -753,69 +993,136 @@ class CheckTest(unittest.TestCase):
         # 上流として読んだ要件定義書のリンクは見ない
         for run in (specdoc.run_check, specdoc.run_html):
             with self.subTest(run=run.__name__):
-                with mock.patch.object(specdoc.Doc, "check_links", autospec=True, side_effect=specdoc.Doc.check_links) as m:
+                with mock.patch.object(
+                    specdoc.Doc,
+                    "check_links",
+                    autospec=True,
+                    side_effect=specdoc.Doc.check_links,
+                ) as m:
                     run([str(self.repo.path(DESIGN))])
-                self.assertEqual([c.args[0].path for c in m.call_args_list], [self.repo.path(DESIGN)])
+                self.assertEqual(
+                    [c.args[0].path for c in m.call_args_list], [self.repo.path(DESIGN)]
+                )
 
     def test_document_name_must_match_exactly(self):
         # 大文字・小文字を区別しない macOS でも、Design.md を型の文書として扱わない
         rel = "specs/13-other/Design.md"
         self.repo.write(rel, self.repo.read(DESIGN))
-        self.assertEqual(self.repo.messages(rel), [f"型の文書（{specdoc.DOC_LIST}）ではない"])
+        self.assertEqual(
+            self.repo.messages(rel), [f"型の文書（{specdoc.DOC_LIST}）ではない"]
+        )
 
     def test_ids_must_be_separated_by_comma(self):
-        for value in ("R-001 R-003", "R-001、、R-003", "、R-001、R-003", "R-001、R-003、", "R-001、 R-003", "R-001,R-003"):
+        for value in (
+            "R-001 R-003",
+            "R-001、、R-003",
+            "、R-001、R-003",
+            "R-001、R-003、",
+            "R-001、 R-003",
+            "R-001,R-003",
+        ):
             with self.subTest(value=value):
                 self.set_ac_reqs(value)
-                self.assertIn("要件 は `R-001、R-002` のように番号を「、」で区切って書く", self.repo.messages(DESIGN))
+                self.assertIn(
+                    "要件 は `R-001、R-002` のように番号を「、」で区切って書く",
+                    self.repo.messages(DESIGN),
+                )
         self.set_ac_reqs("R-001、R-002、R-003")
         self.assertEqual(self.repo.check(DESIGN), [])
 
     def test_ids_must_not_repeat(self):
         self.set_ac_reqs("R-001、R-001、R-003")
-        self.assertEqual(self.repo.messages(DESIGN), ["要件 に同じ番号を重ねて書かない"])
+        self.assertEqual(
+            self.repo.messages(DESIGN), ["要件 に同じ番号を重ねて書かない"]
+        )
 
     def test_unsplit_statement_needs_reason(self):
-        for body in ("分割しない", "分割しない。理由:", "分割しないで進める", "```text\nx\n```", "| a |\n| --- |\n| b |"):
+        for body in (
+            "分割しない",
+            "分割しない。理由:",
+            "分割しないで進める",
+            "```text\nx\n```",
+            "| a |\n| --- |\n| b |",
+        ):
             with self.subTest(body=body):
                 self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=body))
-                self.assertEqual(self.repo.messages(DESIGN), ["分割しないときは「分割しない。理由: …」と書く"])
-        for body in ("分割しない。理由: x", "分割しない。\n理由: まとまりが 1 つしかない"):
+                self.assertEqual(
+                    self.repo.messages(DESIGN),
+                    ["分割しないときは「分割しない。理由: …」と書く"],
+                )
+        for body in (
+            "分割しない。理由: x",
+            "分割しない。\n理由: まとまりが 1 つしかない",
+        ):
             with self.subTest(body=body):
                 self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=body))
                 self.assertEqual(self.repo.check(DESIGN), [])
 
     def test_not_utf8(self):
-        self.repo.write(REQ, self.repo.path(REQ).read_bytes().replace("発行".encode("utf-8"), b"\xff\xfe", 1))
+        self.repo.write(
+            REQ,
+            self.repo.path(REQ)
+            .read_bytes()
+            .replace("発行".encode("utf-8"), b"\xff\xfe", 1),
+        )
         self.assertEqual(self.repo.messages(REQ), ["UTF-8 で書く"])
 
     def test_link_destination_form(self):
         cases = [
-            ("HTTPS://example.com", "リンク先は相対パスか http・https・mailto にする: HTTPS://example.com"),
+            (
+                "HTTPS://example.com",
+                "リンク先は相対パスか http・https・mailto にする: HTTPS://example.com",
+            ),
             ("//evil.example.com/x", "リンク先は相対パスで書く: //evil.example.com/x"),
             ("/etc/passwd", "リンク先は相対パスで書く: /etc/passwd"),
             ("\x01javascript:alert%281%29", "リンク先に制御文字を入れない"),
             ("a\x7fb.md", "リンク先に制御文字を入れない"),
             # check は %2F を区切りとして照らすが、ブラウザは区切りと読まない
-            ("mocks%2Flist.html", "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%2Flist.html"),
-            ("mocks%5clist.html", "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%5clist.html"),
+            (
+                "mocks%2Flist.html",
+                "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%2Flist.html",
+            ),
+            (
+                "mocks%5clist.html",
+                "リンク先のパスに %2F・%5C を入れない（区切りは / にする）: mocks%5clist.html",
+            ),
         ]
         for dest, expected in cases:
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})")
+                )
                 self.assertEqual(self.repo.messages(REQ), [expected])
         # ? と # より後はパスではない。URL と、# で始まる文書の中へのリンク先も %2F を照らさない
-        for dest in ("mocks/list.html?q=a%2Fb", "mocks/list.html#a%2Fb", "mocks/list.html?q=1#x", "https://example.com/a%2Fb", "#a%2Fb"):
+        for dest in (
+            "mocks/list.html?q=a%2Fb",
+            "mocks/list.html#a%2Fb",
+            "mocks/list.html?q=1#x",
+            "https://example.com/a%2Fb",
+            "#a%2Fb",
+        ):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})")
+                )
                 self.assertEqual(self.repo.check(REQ), [])
 
     def test_link_destination_without_backslash(self):
         # ブラウザは http・https・file の URL でバックスラッシュを / と読むので、\\host は //host と同じになる
-        for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x", "a\\b.md", "https://example.com\\x"):
+        for dest in (
+            "\\\\evil.example.com/x",
+            "\\/evil.example.com/x",
+            "a\\b.md",
+            "https://example.com\\x",
+        ):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
-                self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})")
+                )
+                self.assertEqual(
+                    self.repo.messages(REQ),
+                    ["リンク先にバックスラッシュを入れない（区切りは / にする）"],
+                )
 
     def test_gate_does_not_look_downstream(self):
         # ゲートが見るのは渡した文書とその上位の文書だけ。下位の文書は見ない
@@ -830,23 +1137,37 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(len(messages), 1, messages)
         self.assertTrue(messages[0].startswith("読めない: "), messages)
         messages = self.repo.messages(DESIGN)
-        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
+        self.assertTrue(
+            any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages),
+            messages,
+        )
 
     def test_unreadable_directory(self):
         # Python 3.12 までの Path.exists は EACCES で例外を送る。トレースバックにせず 1 行のエラーにする
         lock(self, self.repo.path(f"{SPEC}/mocks"))
         messages = self.repo.messages(DESIGN)
         self.assertEqual(len(messages), 1, messages)
-        self.assertTrue(messages[0].startswith("リンク先 mocks/list.html を調べられない: "), messages)
+        self.assertTrue(
+            messages[0].startswith("リンク先 mocks/list.html を調べられない: "),
+            messages,
+        )
 
 
 class SplitTest(unittest.TestCase):
     def setUp(self):
         self.repo = Repo(self)
         self.repo.write_requirements()
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし"))
-        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
-        self.write_child("listing", "- AC-listing-001: 発行済みの請求書には選択欄が出ない\n  - 要件: R-002")
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし")
+        )
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003",
+        )
+        self.write_child(
+            "listing",
+            "- AC-listing-001: 発行済みの請求書には選択欄が出ない\n  - 要件: R-002",
+        )
 
     def child_path(self, name):
         return f"{SPEC}/{name}/design.md"
@@ -857,15 +1178,23 @@ class SplitTest(unittest.TestCase):
         bodies = {"受け入れ基準": acs}
         if data:
             bodies["読み書きするデータ"] = data
-        self.repo.write(self.child_path(name), build_doc("design", meta(parent=parent, upstream=upstream), bodies, True))
+        self.repo.write(
+            self.child_path(name),
+            build_doc("design", meta(parent=parent, upstream=upstream), bodies, True),
+        )
 
     def test_split_set_passes(self):
         self.assertEqual(self.repo.check(), [])
 
     def test_child_plan(self):
         acs = "- AC-001: 既存の単票発行は変わらない\n  - 要件: なし"
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準=acs))
-        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準=acs)
+        )
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003",
+        )
         self.repo.write(PLAN, build_doc("plan", meta(upstream=[DESIGN]), {}))
         s = (
             "- S-billing-001: まとめて発行する\n  - 受け入れ基準: AC-billing-001\n  - 種別: 正常\n  - 層: 結合\n"
@@ -873,7 +1202,12 @@ class SplitTest(unittest.TestCase):
         )
         up = [self.child_path("billing"), PLAN]
         path = f"{SPEC}/billing/plan.md"
-        self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True))
+        self.repo.write(
+            path,
+            build_doc(
+                "plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True
+            ),
+        )
         self.assertEqual(self.repo.check(path), [])
         cases = [
             ("AC-listing-001", "下流か別の子の文書の番号は参照しない: AC-listing-001"),
@@ -881,17 +1215,37 @@ class SplitTest(unittest.TestCase):
         ]
         for ac, expected in cases:
             with self.subTest(ac=ac):
-                self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s.replace("AC-billing-001", ac)}, True))
+                self.repo.write(
+                    path,
+                    build_doc(
+                        "plan",
+                        meta("draft", parent=PLAN, upstream=up),
+                        {"シナリオ": s.replace("AC-billing-001", ac)},
+                        True,
+                    ),
+                )
                 messages = self.repo.messages(path)
                 self.assertIn(expected, messages)
                 self.assertIn("受ける S の無い AC: AC-billing-001", messages)
         self.repo.path(self.child_path("billing")).unlink()
-        self.assertIn(f"設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
+        self.assertIn(
+            f"設計書が無い: {self.child_path('billing')}", self.repo.messages(path)
+        )
 
     def test_gate_of_child_plan_reaches_parent_design(self):
         # 子の実装プランのゲートは、上流をたどって親の設計書にも当たる
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし", 要確認=question("plan")))
-        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
+        self.repo.write_design(
+            with_body(
+                DESIGN_BODIES,
+                サブ機能分割=SPLIT,
+                受け入れ基準="なし",
+                要確認=question("plan"),
+            )
+        )
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003",
+        )
         self.repo.write(PLAN, build_doc("plan", meta(upstream=[DESIGN]), {}))
         s = (
             "- S-billing-001: まとめて発行する\n  - 受け入れ基準: AC-billing-001\n  - 種別: 正常\n  - 層: 結合\n"
@@ -899,21 +1253,37 @@ class SplitTest(unittest.TestCase):
         )
         up = [self.child_path("billing"), PLAN]
         path = f"{SPEC}/billing/plan.md"
-        self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True))
+        self.repo.write(
+            path,
+            build_doc(
+                "plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True
+            ),
+        )
         self.assertEqual(self.repo.check(path), [])
         self.assertEqual(
-            [(p, m) for p, _, m in self.repo.check(path, gate="plan")], [(DESIGN, "解決する工程が plan の要確認が残っている: Q-001")]
+            [(p, m) for p, _, m in self.repo.check(path, gate="plan")],
+            [(DESIGN, "解決する工程が plan の要確認が残っている: Q-001")],
         )
 
     def test_parent_plan_must_not_receive_child_ac(self):
-        s = PLAN_BODIES["シナリオ"].split("\n- S-002")[0].replace("AC-001", "AC-billing-001")
+        s = (
+            PLAN_BODIES["シナリオ"]
+            .split("\n- S-002")[0]
+            .replace("AC-001", "AC-billing-001")
+        )
         self.repo.write_plan(with_body(PLAN_BODIES, シナリオ=s))
-        self.assertEqual(self.repo.messages(PLAN), ["下流か別の子の文書の番号は参照しない: AC-billing-001"])
+        self.assertEqual(
+            self.repo.messages(PLAN),
+            ["下流か別の子の文書の番号は参照しない: AC-billing-001"],
+        )
 
     def test_split_names_and_descriptions(self):
         bad_name = "子は `- 子の名前: 説明` の形で書く。子の名前はどの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
         cases = [
-            (SPLIT + "\n- billing: 請求書の再発行\n  - 要件: なし\n  - 依存: なし", "子の名前が重なっている: billing"),
+            (
+                SPLIT + "\n- billing: 請求書の再発行\n  - 要件: なし\n  - 依存: なし",
+                "子の名前が重なっている: billing",
+            ),
             (SPLIT.replace("- listing:", "- mocks:"), bad_name),
             (SPLIT.replace("- listing:", "- specs:"), bad_name),
             # 2 語目が数字で始まると、AC-phase-100 が子 phase の AC-100 とも読めてしまう
@@ -922,25 +1292,35 @@ class SplitTest(unittest.TestCase):
         ]
         for split, expected in cases:
             with self.subTest(expected=expected, split=split):
-                self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+                self.repo.write_design(
+                    with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+                )
                 self.assertIn(expected, self.repo.messages(DESIGN))
 
     def test_r_assigned_to_two_children(self):
         # 子をまたぐ R は子に割り当てず、親の AC で受ける。後の子の「要件」の行に出す
         item = "  - 要件: R-002、R-003"
         split = SPLIT.replace("  - 要件: R-002", item)
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
         line = self.repo.read(DESIGN).split("\n").index(item) + 1
         msg = "2 つ以上の子に割り当てた R: R-003（billing と listing。子をまたぐ R は割り当てず、この文書の AC で受ける）"
         self.assertEqual(self.repo.check(DESIGN), [(DESIGN, line, msg)])
         # 1 つの子の中の重なりは、子をまたぐ割り当てとは別のエラーにする
         split = SPLIT.replace("R-001、R-003", "R-001、R-001、R-003")
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
-        self.assertEqual(self.repo.messages(DESIGN), ["要件 に同じ番号を重ねて書かない"])
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
+        self.assertEqual(
+            self.repo.messages(DESIGN), ["要件 に同じ番号を重ねて書かない"]
+        )
 
     def test_child_name_may_end_with_digits(self):
         split = SPLIT.replace("- listing:", "- phase2:")
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
         self.assertEqual(self.repo.messages(DESIGN), [])
 
     def test_child_directory_name(self):
@@ -954,61 +1334,118 @@ class SplitTest(unittest.TestCase):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")
         # 親は子のディレクトリを見ない。子の check が親の「サブ機能分割」と照合する
         self.assertEqual(self.repo.check(DESIGN), [])
-        self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に無い子: refund"])
+        self.assertEqual(
+            self.repo.messages(self.child_path("refund")),
+            ["親の設計書の「サブ機能分割」に無い子: refund"],
+        )
 
     def test_child_of_unsplit_parent(self):
         # 親が「分割しない。理由: …」のときは、どの子も「サブ機能分割」に無い
         self.repo.write_design(DESIGN_BODIES)
-        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
-        self.assertEqual(self.repo.messages(self.child_path("billing")), ["親の設計書の「サブ機能分割」に無い子: billing"])
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003",
+        )
+        self.assertEqual(
+            self.repo.messages(self.child_path("billing")),
+            ["親の設計書の「サブ機能分割」に無い子: billing"],
+        )
 
     def test_dependency_must_come_first(self):
         split = SPLIT.replace("依存: billing", "依存: refund")
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
-        self.assertEqual(self.repo.messages(DESIGN), ["依存には、先に並べた子を書く（並び順が実装順）: refund"])
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
+        self.assertEqual(
+            self.repo.messages(DESIGN),
+            ["依存には、先に並べた子を書く（並び順が実装順）: refund"],
+        )
 
     def test_dependency_must_not_repeat(self):
         split = SPLIT.replace("依存: billing", "依存: billing、billing")
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
         self.assertEqual(self.repo.messages(DESIGN), ["依存 に同じ子を重ねて書かない"])
 
     def test_requirement_not_assigned_nor_covered(self):
         split = SPLIT.replace("要件: R-001、R-003", "要件: R-001")
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=split, 受け入れ基準="なし")
+        )
         self.assertEqual(self.repo.messages(DESIGN), ["受ける AC の無い R: R-003"])
 
     def test_child_must_cover_assigned_requirements(self):
-        self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001")
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001",
+        )
         self.assertEqual(
             self.repo.messages(self.child_path("billing")),
-            ["受ける AC の無い R: R-003（親の「サブ機能分割」でこの子に割り当てている）"],
+            [
+                "受ける AC の無い R: R-003（親の「サブ機能分割」でこの子に割り当てている）"
+            ],
         )
 
     def test_child_ids_carry_the_child_name(self):
-        self.write_child("billing", "- AC-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
-        self.assertIn("子の文書の AC は `AC-billing-001` の形にする: AC-001", self.repo.messages(self.child_path("billing")))
+        self.write_child(
+            "billing",
+            "- AC-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003",
+        )
+        self.assertIn(
+            "子の文書の AC は `AC-billing-001` の形にする: AC-001",
+            self.repo.messages(self.child_path("billing")),
+        )
 
     def test_parent_only_heading_in_child(self):
         path = self.child_path("billing")
-        self.repo.replace(path, "## 非機能設計\n", "## データ設計\n\nなし\n\n## 非機能設計\n")
-        self.assertEqual(self.repo.messages(path), ["子の文書には書かない見出し: ## データ設計"])
+        self.repo.replace(
+            path, "## 非機能設計\n", "## データ設計\n\nなし\n\n## 非機能設計\n"
+        )
+        self.assertEqual(
+            self.repo.messages(path), ["子の文書には書かない見出し: ## データ設計"]
+        )
 
     def test_child_meta(self):
-        self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", parent=None)
-        self.assertIn(f"子の文書には親を書く: {DESIGN}", self.repo.messages(self.child_path("billing")))
-        self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=[REQ])
-        self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書いていない文書: {DESIGN}"])
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003",
+            parent=None,
+        )
+        self.assertIn(
+            f"子の文書には親を書く: {DESIGN}",
+            self.repo.messages(self.child_path("billing")),
+        )
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003",
+            upstream=[REQ],
+        )
+        self.assertEqual(
+            self.repo.messages(self.child_path("billing")),
+            [f"上流に書いていない文書: {DESIGN}"],
+        )
         # 別の子の設計書は上流に書けない
         sibling = self.child_path("listing")
         up = [REQ, DESIGN, sibling]
-        self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=up)
-        self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書けるのは {REQ}・{DESIGN} だけ: {sibling}"])
+        self.write_child(
+            "billing",
+            "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003",
+            upstream=up,
+        )
+        self.assertEqual(
+            self.repo.messages(self.child_path("billing")),
+            [f"上流に書けるのは {REQ}・{DESIGN} だけ: {sibling}"],
+        )
 
     def test_unreadable_parent(self):
         # 親の設計書を読めないときは、読めないと知らせる。「サブ機能分割」に無いとは言わない
         lock(self, self.repo.path(DESIGN))
         messages = self.repo.messages(self.child_path("billing"))
-        self.assertTrue(any(m.startswith(f"親の設計書 {DESIGN} を読めない: ") for m in messages), messages)
+        self.assertTrue(
+            any(m.startswith(f"親の設計書 {DESIGN} を読めない: ") for m in messages),
+            messages,
+        )
         self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
 
     def test_missing_parent(self):
@@ -1022,14 +1459,22 @@ class SplitTest(unittest.TestCase):
         self.write_child("billing", acs, data="- 発行\n  - 書く: `invoices.status`")
         self.assertEqual(self.repo.check(self.child_path("billing")), [])
         self.write_child("billing", acs, data="- 発行\n  - 書く: `invoices.total`")
-        self.assertEqual(self.repo.messages(self.child_path("billing")), ["テーブル定義に無いカラム: invoices.total"])
+        self.assertEqual(
+            self.repo.messages(self.child_path("billing")),
+            ["テーブル定義に無いカラム: invoices.total"],
+        )
 
     def test_child_html_links_to_parent_documents(self):
-        written, errors, _ = specdoc.run_html([str(self.repo.path(self.child_path("billing")))])
+        written, errors, _ = specdoc.run_html(
+            [str(self.repo.path(self.child_path("billing")))]
+        )
         self.assertEqual(errors, [])
         out = written[0].read_bytes().decode("utf-8")
         self.assertIn('<a href="../requirements.html#R-001">R-001</a>', out)
-        self.assertIn('<dt>親</dt>\n<dd><a href="../design.html">基本設計書: 請求書の一括発行</a></dd>', out)
+        self.assertIn(
+            '<dt>親</dt>\n<dd><a href="../design.html">基本設計書: 請求書の一括発行</a></dd>',
+            out,
+        )
 
     def test_gate_does_not_look_for_children(self):
         self.repo.path(self.child_path("billing")).unlink()
@@ -1072,18 +1517,38 @@ class ProxyTest(unittest.TestCase):
         # 上流の上流の著者は決まった人ではない
         self.assert_deciders("approve", PLAN, [("鈴木", "本人"), ("山田", "代理")])
 
+    def test_author_who_also_wrote_the_upstream_approves_as_the_decider(self):
+        # 著者が上流の著者を兼ねるときは、自分の文書を承認しても本人になる
+        self.assert_deciders("approve", DESIGN, [("山田", "本人"), ("鈴木", "代理")])
+
+    def test_missing_upstream_adds_no_decider(self):
+        # 上流の文書が無ければ、その著者は決まった人に入らない。止めずに代理と出す
+        self.set_author(DESIGN, "鈴木")
+        self.repo.path(REQ).unlink()
+        self.assert_deciders("approve", DESIGN, [("山田", "代理"), ("鈴木", "代理")])
+        self.assert_deciders("unapprove", DESIGN, [("山田", "代理"), ("鈴木", "本人")])
+
     def test_approve_child_design_by_an_author_of_the_requirements_or_the_parent(self):
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし")
+        )
         child = f"{SPEC}/billing/design.md"
-        self.repo.write(child, build_doc("design", meta(parent=DESIGN, upstream=[REQ, DESIGN]), {}, True))
+        self.repo.write(
+            child,
+            build_doc("design", meta(parent=DESIGN, upstream=[REQ, DESIGN]), {}, True),
+        )
         self.set_author(DESIGN, "鈴木")
         self.set_author(child, "田中")
-        self.assert_deciders("approve", child, [("山田", "本人"), ("鈴木", "本人"), ("田中", "代理")])
+        self.assert_deciders(
+            "approve", child, [("山田", "本人"), ("鈴木", "本人"), ("田中", "代理")]
+        )
 
     def test_unapprove_is_by_the_author_or_an_author_of_the_upstream(self):
         self.set_author(DESIGN, "鈴木")
         self.set_author(PLAN, "田中")
-        self.assert_deciders("unapprove", PLAN, [("田中", "本人"), ("鈴木", "本人"), ("山田", "代理")])
+        self.assert_deciders(
+            "unapprove", PLAN, [("田中", "本人"), ("鈴木", "本人"), ("山田", "代理")]
+        )
 
     def test_name_is_compared_without_surrounding_spaces(self):
         self.assert_deciders("submit", REQ, [(" 山田 ", "本人")])
@@ -1116,14 +1581,30 @@ class HtmlTest(unittest.TestCase):
         self.assertIn('<li id="AC-001">', out)
         self.assertIn('<a href="requirements.html#R-001">R-001</a>', out)
         self.assertIn('<a href="mocks/list.html">モック</a>', out)
-        self.assertIn('<li><a href="requirements.html">要件定義書: 請求書の一括発行</a></li>', out)
+        self.assertIn(
+            '<li><a href="requirements.html">要件定義書: 請求書の一括発行</a></li>', out
+        )
 
     def test_definition_number_is_not_linked_to_itself(self):
         # 定義の行の番号は自分へのリンクにしない。同じ文書のほかの場所に書いた番号はリンクにする
-        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- AC-001 の期限は 60 秒にする"))
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 設計判断="- AC-001 の期限は 60 秒にする")
+        )
         out = self.render(DESIGN)
         self.assertIn('<li id="AC-001">AC-001: 選んだ請求書', out)
         self.assertIn('<li><a href="#AC-001">AC-001</a> の期限', out)
+
+    def test_number_repeated_on_its_definition_line_is_linked(self):
+        # 定義の行でも、自分の番号の 2 つ目からはリンクにする
+        self.repo.replace(
+            DESIGN,
+            "- AC-002: 発行済みの請求書には選択欄が出ない",
+            "- AC-002: AC-002 の画面では選択欄が出ない",
+        )
+        out = self.render(DESIGN)
+        self.assertIn(
+            '<li id="AC-002">AC-002: <a href="#AC-002">AC-002</a> の画面', out
+        )
 
     def test_legend_is_not_linked(self):
         out = self.render(REQ)
@@ -1132,12 +1613,18 @@ class HtmlTest(unittest.TestCase):
 
     def test_mermaid_script_only_when_needed(self):
         design = self.render(DESIGN)
-        self.assertIn('<pre class="mermaid">erDiagram\n  customers ||--o{ invoices : has</pre>', design)
+        self.assertIn(
+            '<pre class="mermaid">erDiagram\n  customers ||--o{ invoices : has</pre>',
+            design,
+        )
         # SRI は crossorigin が無いとブラウザが照合できず、読み込みを止める
         script = f'<script src="{specdoc.MERMAID_URL}" integrity="{specdoc.MERMAID_INTEGRITY}" crossorigin="anonymous"></script>'
         self.assertIn(script, design)
         # CDN を読めないときは初期化せず、コードのまま表示する
-        self.assertIn("<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>", design)
+        self.assertIn(
+            "<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>",
+            design,
+        )
         self.assertNotIn("<script", self.render(REQ))
 
     def test_md_links_become_html_and_text_is_escaped(self):
@@ -1159,14 +1646,26 @@ class HtmlTest(unittest.TestCase):
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_no_output_on_link_form_error(self):
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)")
+        )
         written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
-        self.assertEqual([msg for _, _, msg in errors], ["リンク先は相対パスか http・https・mailto にする: javascript:alert%281%29"])
+        self.assertEqual(
+            [msg for _, _, msg in errors],
+            [
+                "リンク先は相対パスか http・https・mailto にする: javascript:alert%281%29"
+            ],
+        )
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_no_output_on_not_utf8(self):
-        self.repo.write(REQ, self.repo.path(REQ).read_bytes().replace("発行".encode("utf-8"), b"\xff\xfe", 1))
+        self.repo.write(
+            REQ,
+            self.repo.path(REQ)
+            .read_bytes()
+            .replace("発行".encode("utf-8"), b"\xff\xfe", 1),
+        )
         written, errors, _ = specdoc.run_html([str(self.repo.path(REQ))])
         self.assertEqual(written, [])
         self.assertEqual([msg for _, _, msg in errors], ["UTF-8 で書く"])
@@ -1182,36 +1681,59 @@ class HtmlTest(unittest.TestCase):
         self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
         rel = "specs/13-other/design.md"
         typed = self.repo.path(rel)
-        written, errors, notes = specdoc.run_html([str(self.repo.path(REQ)), str(typed)])
+        written, errors, notes = specdoc.run_html(
+            [str(self.repo.path(REQ)), str(typed)]
+        )
         self.assertEqual(written, [self.repo.path(f"{SPEC}/requirements.html")])
         self.assertEqual(errors, [(typed, 1, self.repo.case_error(rel))])
         self.assertEqual(notes, [])
         self.assertFalse(self.repo.path("specs/13-other/Design.html").exists())
 
     def test_renderer_links_only_allowed_destinations(self):
-        denied = ("javascript:alert%281%29", "JAVASCRIPT:x", "data:text/html,x", "vbscript:x", "//evil.example.com/x", "/etc/passwd", "HTTPS://example.com")
+        denied = (
+            "javascript:alert%281%29",
+            "JAVASCRIPT:x",
+            "data:text/html,x",
+            "vbscript:x",
+            "//evil.example.com/x",
+            "/etc/passwd",
+            "HTTPS://example.com",
+        )
         for dest in denied:
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})")
+                )
                 out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn(f'href="{specdoc.esc(dest)}"', out)
-        for dest in ("https://example.com", "http://example.com", "mailto:a@example.com", "#R-001"):
+        for dest in (
+            "https://example.com",
+            "http://example.com",
+            "mailto:a@example.com",
+            "#R-001",
+        ):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [可]({dest})"))
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [可]({dest})")
+                )
                 out = self.render_directly(REQ)
                 self.assertIn(f'<a href="{specdoc.esc(dest)}">可</a>', out)
 
     def test_renderer_does_not_link_backslash_destinations(self):
         for dest in ("\\\\evil.example.com/x", "\\/evil.example.com/x"):
             with self.subTest(dest=dest):
-                self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})"))
+                self.repo.write_requirements(
+                    with_body(REQ_BODIES, 明示的除外事項=f"- 例: [危ない]({dest})")
+                )
                 out = self.render_directly(REQ)
                 self.assertIn("<li>例: 危ない</li>", out)
                 self.assertNotIn("evil.example.com", out)
 
     def test_output_despite_other_check_errors(self):
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- R-099 を参照"))
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項="- R-099 を参照")
+        )
         self.assertEqual(self.repo.messages(REQ), ["定義の無い番号: R-099"])
         self.assertIn("<li>R-099 を参照</li>", self.render(REQ))
 
@@ -1220,13 +1742,22 @@ class HtmlTest(unittest.TestCase):
         self.repo.write_design(with_body(DESIGN_BODIES, 画面設計=item))
         line = self.repo.read(DESIGN).split("\n").index(item) + 1
         written, errors, notes = specdoc.run_html([str(self.repo.path(DESIGN))])
-        self.assertEqual((written, errors), ([self.repo.path(f"{SPEC}/design.html")], []))
-        self.assertEqual(notes, [(self.repo.path(DESIGN), line, "警告: リンク先が無い: mocks/detail.html")])
-        self.assertEqual(self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"])
+        self.assertEqual(
+            (written, errors), ([self.repo.path(f"{SPEC}/design.html")], [])
+        )
+        self.assertEqual(
+            notes,
+            [(self.repo.path(DESIGN), line, "警告: リンク先が無い: mocks/detail.html")],
+        )
+        self.assertEqual(
+            self.repo.messages(DESIGN), ["リンク先が無い: mocks/detail.html"]
+        )
 
     def test_meta_path_outside_the_repository_is_not_linked(self):
         bad = "../outside/design.md"
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[REQ, bad]), DESIGN_BODIES))
+        self.repo.write(
+            DESIGN, build_doc("design", meta(upstream=[REQ, bad]), DESIGN_BODIES)
+        )
         out = self.meta_of(DESIGN)
         self.assertIn(f"<li>{bad}</li>", out)
         self.assertNotIn("outside/design.html", out)
@@ -1235,7 +1766,9 @@ class HtmlTest(unittest.TestCase):
         # check は上流に書けないパスとして誤りにするが、html はリンクにしても javascript: にしない
         rel = f"{SPEC}/javascript:alert(1)"
         self.repo.write(rel, "x\n")
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[REQ, rel]), DESIGN_BODIES))
+        self.repo.write(
+            DESIGN, build_doc("design", meta(upstream=[REQ, rel]), DESIGN_BODIES)
+        )
         self.assertIn(f"上流に書けるのは {REQ} だけ: {rel}", self.repo.messages(DESIGN))
         out = self.meta_of(DESIGN)
         self.assertIn('<a href="./javascript:alert(1)">', out)
@@ -1244,7 +1777,9 @@ class HtmlTest(unittest.TestCase):
     def test_meta_path_to_a_misplaced_document_keeps_md(self):
         rel = "docs/design.md"
         self.repo.write(rel, self.repo.read(DESIGN))
-        self.repo.write(DESIGN, build_doc("design", meta(upstream=[REQ, rel]), DESIGN_BODIES))
+        self.repo.write(
+            DESIGN, build_doc("design", meta(upstream=[REQ, rel]), DESIGN_BODIES)
+        )
         out = self.meta_of(DESIGN)
         self.assertIn('<a href="../../docs/design.md">', out)
         self.assertNotIn("docs/design.html", out)
@@ -1255,9 +1790,15 @@ class HtmlTest(unittest.TestCase):
 
     def test_meta_path_with_backslash_is_not_linked(self):
         # 書式の誤りなので html は書き出さないが、Renderer の側でもリンクにしない
-        for bad in (f"{SPEC}/\\\\evil.example.com/x", f"{SPEC}/..\\..\\outside/design.md"):
+        for bad in (
+            f"{SPEC}/\\\\evil.example.com/x",
+            f"{SPEC}/..\\..\\outside/design.md",
+        ):
             with self.subTest(bad=bad):
-                self.repo.write(DESIGN, build_doc("design", meta(upstream=[REQ, bad]), DESIGN_BODIES))
+                self.repo.write(
+                    DESIGN,
+                    build_doc("design", meta(upstream=[REQ, bad]), DESIGN_BODIES),
+                )
                 out = self.render_directly(DESIGN)
                 self.assertIn(f"<li>{specdoc.esc(bad)}</li>", out)
 
@@ -1276,8 +1817,12 @@ class HtmlTest(unittest.TestCase):
         self.render(REQ)
         self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="* x"))
         written, errors, notes = specdoc.run_html([str(self.repo.path(REQ))])
-        self.assertEqual((written, [msg for _, _, msg in errors]), ([], ["箇条書きは - で書く"]))
-        self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
+        self.assertEqual(
+            (written, [msg for _, _, msg in errors]), ([], ["箇条書きは - で書く"])
+        )
+        self.assertEqual(
+            notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")]
+        )
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_stale_html_of_unreadable_document_is_removed(self):
@@ -1287,7 +1832,9 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(written, [])
         self.assertEqual(len(errors), 1, errors)
         self.assertTrue(errors[0][2].startswith("読めない: "), errors)
-        self.assertEqual(notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")])
+        self.assertEqual(
+            notes, [(self.repo.path(REQ), 1, "古い requirements.html を消した")]
+        )
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
     def test_html_outside_specs_is_never_removed(self):
@@ -1304,8 +1851,12 @@ class HtmlTest(unittest.TestCase):
 
     def test_write_error_is_reported_and_others_continue(self):
         self.repo.path(f"{SPEC}/plan.html").mkdir()
-        written, errors, _ = specdoc.run_html([str(self.repo.path(r)) for r in self.repo.docs()])
-        self.assertEqual([p.name for p in written], ["design.html", "requirements.html"])
+        written, errors, _ = specdoc.run_html(
+            [str(self.repo.path(r)) for r in self.repo.docs()]
+        )
+        self.assertEqual(
+            [p.name for p in written], ["design.html", "requirements.html"]
+        )
         self.assertEqual([(p.name, line) for p, line, _ in errors], [("plan.md", 1)])
         self.assertTrue(errors[0][2].startswith("plan.html を書けない: "), errors)
 
@@ -1320,7 +1871,10 @@ class HtmlTest(unittest.TestCase):
 
         with mock.patch.object(specdoc, "write_output", write_half):
             written, errors, notes = specdoc.run_html([str(path)])
-        self.assertEqual((written, errors), ([], [(path, 1, "requirements.html を書けない: No space left on device")]))
+        self.assertEqual(
+            (written, errors),
+            ([], [(path, 1, "requirements.html を書けない: No space left on device")]),
+        )
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
         self.assertFalse(self.repo.path(f"{SPEC}/requirements.html").exists())
 
@@ -1328,14 +1882,21 @@ class HtmlTest(unittest.TestCase):
         self.render(REQ)
         path = self.repo.path(REQ)
         busy = OSError(errno.EBUSY, os.strerror(errno.EBUSY))
-        with mock.patch.object(specdoc, "write_output", side_effect=OSError(errno.ENOSPC, "No space left on device")):
+        with mock.patch.object(
+            specdoc,
+            "write_output",
+            side_effect=OSError(errno.ENOSPC, "No space left on device"),
+        ):
             with mock.patch.object(specdoc.Path, "unlink", side_effect=busy):
                 written, errors, notes = specdoc.run_html([str(path)])
         self.assertEqual((written, notes), ([], []))
-        self.assertEqual([msg for _, _, msg in errors], [
-            "requirements.html を書けない: No space left on device",
-            f"古い requirements.html を消せない: {busy.strerror}。Markdown と食い違ったまま残るので、手で消す",
-        ])
+        self.assertEqual(
+            [msg for _, _, msg in errors],
+            [
+                "requirements.html を書けない: No space left on device",
+                f"古い requirements.html を消せない: {busy.strerror}。Markdown と食い違ったまま残るので、手で消す",
+            ],
+        )
         self.assertTrue(self.repo.path(f"{SPEC}/requirements.html").is_file())
 
     def test_interrupted_html_is_removed(self):
@@ -1362,7 +1923,10 @@ class HtmlTest(unittest.TestCase):
         path = self.repo.path(REQ)
         written, errors, notes = specdoc.run_html([str(path)])
         reason = os.strerror(errno.ELOOP)
-        self.assertEqual((written, errors), ([], [(path, 1, f"requirements.html を書けない: {reason}")]))
+        self.assertEqual(
+            (written, errors),
+            ([], [(path, 1, f"requirements.html を書けない: {reason}")]),
+        )
         self.assertEqual(notes, [(path, 1, "古い requirements.html を消した")])
         self.assertEqual(victim.read_bytes(), b"keep\n")
         self.assertFalse(os.path.lexists(out))
@@ -1378,7 +1942,10 @@ class HtmlTest(unittest.TestCase):
         path = self.repo.path(REQ)
         written, errors, notes = specdoc.run_html([str(path)])
         reason = os.strerror(errno.ELOOP)
-        self.assertEqual((written, errors), ([], [(path, 1, f"requirements.html を書けない: {reason}")]))
+        self.assertEqual(
+            (written, errors),
+            ([], [(path, 1, f"requirements.html を書けない: {reason}")]),
+        )
         self.assertEqual(notes, [])
         self.assertFalse(os.path.lexists(victim))
 
@@ -1401,7 +1968,10 @@ class CliTest(unittest.TestCase):
         """スクリプトとして実行する。標準出力・標準エラーの文字コードは ASCII にしておく。"""
         env = dict(os.environ, PYTHONIOENCODING="ascii")
         return subprocess.run(
-            [sys.executable, specdoc.__file__] + list(argv), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, specdoc.__file__] + list(argv),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
     def test_check_ok(self):
@@ -1412,7 +1982,10 @@ class CliTest(unittest.TestCase):
         line = self.repo.read(REQ).split("\n").index("## リリース日") + 1
         code, out = self.run_main("check", REQ)
         self.assertEqual(code, 1)
-        self.assertEqual(out, f"{REQ}:{line}: 本文が空: ## リリース日。書く内容が無ければ「なし」と書く\n")
+        self.assertEqual(
+            out,
+            f"{REQ}:{line}: 本文が空: ## リリース日。書く内容が無ければ「なし」と書く\n",
+        )
 
     def test_same_error_on_a_line_is_printed_once(self):
         body = "![図](a.png) と ![図](b.png)"
@@ -1423,7 +1996,9 @@ class CliTest(unittest.TestCase):
         self.assertEqual(specdoc.Parser(text).errors.count((line, "画像は使えない")), 2)
         for cmd in ("check", "html"):
             with self.subTest(cmd=cmd):
-                self.assertEqual(self.run_main(cmd, REQ), (1, f"{REQ}:{line}: 画像は使えない\n"))
+                self.assertEqual(
+                    self.run_main(cmd, REQ), (1, f"{REQ}:{line}: 画像は使えない\n")
+                )
 
     def test_check_missing_path(self):
         code, out = self.run_main("check", "nothing")
@@ -1437,21 +2012,38 @@ class CliTest(unittest.TestCase):
     def test_html(self):
         code, out = self.run_main("html", REQ, DESIGN, PLAN)
         self.assertEqual(code, 0)
-        self.assertEqual(out.split("\n")[:3], [f"{SPEC}/requirements.html", f"{SPEC}/design.html", f"{SPEC}/plan.html"])
+        self.assertEqual(
+            out.split("\n")[:3],
+            [f"{SPEC}/requirements.html", f"{SPEC}/design.html", f"{SPEC}/plan.html"],
+        )
 
     def test_check_gate_takes_english_stage_names(self):
         self.repo.path(PLAN).unlink()
-        self.assertEqual(self.run_main("check", "--gate", "release", REQ, DESIGN), (0, "ok: 2 件\n"))
+        self.assertEqual(
+            self.run_main("check", "--gate", "release", REQ, DESIGN), (0, "ok: 2 件\n")
+        )
         # 上位の文書も照合した数に入る
-        self.assertEqual(self.run_main("check", "--gate", "release", DESIGN), (0, "ok: 2 件\n"))
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+        self.assertEqual(
+            self.run_main("check", "--gate", "release", DESIGN), (0, "ok: 2 件\n")
+        )
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
             self.run_main("check", "--gate", "実装", REQ)
         self.assertEqual(cm.exception.code, 2)
 
     def test_proxy_takes_a_command_one_file_and_a_name(self):
-        for argv in (("submit", REQ, DESIGN, "山田"), ("submit", REQ), ("check", REQ, "山田")):
+        for argv in (
+            ("submit", REQ, DESIGN, "山田"),
+            ("submit", REQ),
+            ("check", REQ, "山田"),
+        ):
             with self.subTest(argv=argv):
-                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+                with (
+                    contextlib.redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit) as cm,
+                ):
                     self.run_main("proxy", *argv)
                 self.assertEqual(cm.exception.code, 2)
 
@@ -1461,7 +2053,10 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(
             sorted(line.split(": ", 1)[1] for line in out.splitlines()),
-            ["状態が approved でない", "解決する工程が release の要確認が残っている: Q-001"],
+            [
+                "状態が approved でない",
+                "解決する工程が release の要確認が残っている: Q-001",
+            ],
         )
 
     def test_proxy_errors(self):
@@ -1479,8 +2074,8 @@ class CliTest(unittest.TestCase):
             ("docs/design.md", "specs/<slug>/ の下に置く"),
         ]
         # 大文字・小文字を区別しないファイルシステムでも、名前の違いを誤りにする
-        self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))
-        typed = "specs/proj-12-invoice/requirements.md"
+        self.repo.write("specs/Invoice-copy/requirements.md", self.repo.read(REQ))
+        typed = "specs/invoice-copy/requirements.md"
         cases.append((typed, self.repo.case_error(typed)))
         # ファイルの名前だけが違うときも同じ
         self.repo.write("specs/13-other/Design.md", self.repo.read(DESIGN))
@@ -1488,8 +2083,13 @@ class CliTest(unittest.TestCase):
         cases.append((named, self.repo.case_error(named)))
         for arg, expected in cases:
             with self.subTest(arg=arg):
-                self.assertEqual(self.run_main("proxy", "submit", arg, "山田"), (1, f"{arg}:1: {expected}\n"))
-        self.assertEqual(self.run_main("proxy", "submit", REQ, " "), (1, f"{REQ}:1: 名前が空\n"))
+                self.assertEqual(
+                    self.run_main("proxy", "submit", arg, "山田"),
+                    (1, f"{arg}:1: {expected}\n"),
+                )
+        self.assertEqual(
+            self.run_main("proxy", "submit", REQ, " "), (1, f"{REQ}:1: 名前が空\n")
+        )
 
     def test_proxy_of_unreadable_file(self):
         lock(self, self.repo.path(REQ))
@@ -1500,9 +2100,14 @@ class CliTest(unittest.TestCase):
     def test_proxy_reads_the_upstream_from_the_repository_root(self):
         # どこから、どんな形のパスで呼んでも、上流をリポジトリルートからのパスとして読む
         self.repo.replace(REQ, "- 著者: 山田", "- 著者: 鈴木")
-        self.assertEqual(self.run_main("proxy", "approve", str(self.repo.path(DESIGN)), "鈴木"), (0, "本人\n"))
+        self.assertEqual(
+            self.run_main("proxy", "approve", str(self.repo.path(DESIGN)), "鈴木"),
+            (0, "本人\n"),
+        )
         os.chdir(str(self.repo.path(SPEC)))
-        self.assertEqual(self.run_main("proxy", "approve", "design.md", "鈴木"), (0, "本人\n"))
+        self.assertEqual(
+            self.run_main("proxy", "approve", "design.md", "鈴木"), (0, "本人\n")
+        )
 
     def test_check_too_long_path(self):
         arg = "a" * 300 + ".md"
@@ -1511,8 +2116,14 @@ class CliTest(unittest.TestCase):
     def test_path_on_another_drive_is_shown_as_given(self):
         # Windows の relpath はドライブが違うと ValueError を送る
         path = str(self.repo.path("nothing"))
-        with mock.patch.object(specdoc.os.path, "relpath", side_effect=ValueError("path is on mount 'C:', start on mount 'D:'")):
-            self.assertEqual(self.run_main("check", path), (1, f"{path}:1: ファイルが無い\n"))
+        with mock.patch.object(
+            specdoc.os.path,
+            "relpath",
+            side_effect=ValueError("path is on mount 'C:', start on mount 'D:'"),
+        ):
+            self.assertEqual(
+                self.run_main("check", path), (1, f"{path}:1: ファイルが無い\n")
+            )
 
     def test_stdout_is_utf8_whatever_the_locale(self):
         # 標準出力の文字コードを ASCII にしても、スクリプトとして実行すれば UTF-8 で出す
@@ -1529,8 +2140,12 @@ class CliTest(unittest.TestCase):
     def test_html_writes_nothing_to_stderr(self):
         # 警告と「古い HTML を消した」も stdout に出す。stderr は引数の誤りだけ
         self.run_main("html", REQ)
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:x)"))
-        self.repo.write_design(with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)"))
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:x)")
+        )
+        self.repo.write_design(
+            with_body(DESIGN_BODIES, 画面設計="- 詳細画面: [モック](mocks/detail.html)")
+        )
         result = self.run_script("html", REQ, DESIGN)
         self.assertEqual(result.returncode, 1, result)
         out = result.stdout.decode("utf-8")
@@ -1540,15 +2155,22 @@ class CliTest(unittest.TestCase):
 
     def test_main_leaves_the_caller_streams_alone(self):
         # モジュールから main を呼ぶ側の標準出力の設定は変えない
-        out = io.TextIOWrapper(io.BytesIO(), encoding="ascii", errors="backslashreplace")
+        out = io.TextIOWrapper(
+            io.BytesIO(), encoding="ascii", errors="backslashreplace"
+        )
         with mock.patch.object(sys, "stdout", out):
             self.assertEqual(specdoc.main(["check", "nothing"]), 1)
         self.assertEqual(out.encoding, "ascii")
 
     def test_html_error_and_notes(self):
         self.run_main("html", REQ)
-        self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)"))
-        line = self.repo.read(REQ).split("\n").index("- 例: [x](javascript:alert%281%29)") + 1
+        self.repo.write_requirements(
+            with_body(REQ_BODIES, 明示的除外事項="- 例: [x](javascript:alert%281%29)")
+        )
+        line = (
+            self.repo.read(REQ).split("\n").index("- 例: [x](javascript:alert%281%29)")
+            + 1
+        )
         self.assertEqual(
             self.run_main("html", REQ),
             (
@@ -1564,7 +2186,10 @@ class CliTest(unittest.TestCase):
         line = self.repo.read(DESIGN).split("\n").index(item) + 1
         self.assertEqual(
             self.run_main("html", DESIGN),
-            (0, f"{DESIGN}:{line}: 警告: リンク先が無い: mocks/detail.html\n{SPEC}/design.html\n"),
+            (
+                0,
+                f"{DESIGN}:{line}: 警告: リンク先が無い: mocks/detail.html\n{SPEC}/design.html\n",
+            ),
         )
 
     def test_html_write_error_does_not_stop_the_others(self):
@@ -1573,7 +2198,9 @@ class CliTest(unittest.TestCase):
         lines = out.split("\n")
         self.assertEqual(code, 1)
         self.assertTrue(lines[0].startswith(f"{PLAN}:1: plan.html を書けない: "), out)
-        self.assertEqual(lines[1:], [f"{SPEC}/design.html", f"{SPEC}/requirements.html", ""])
+        self.assertEqual(
+            lines[1:], [f"{SPEC}/design.html", f"{SPEC}/requirements.html", ""]
+        )
 
 
 if __name__ == "__main__":
