@@ -9,6 +9,11 @@
       "name": "sdd",
       "source": "./plugins/sdd",
       "description": "要件定義書・基本設計書・実装プランを決まった型で書き、番号の対応と見出しの構造を機械で照合する"
+    },
+    {
+      "name": "gdrive",
+      "source": "./plugins/gdrive",
+      "description": "Google Drive のファイルを、テキストだけでなく PDF と Office 形式でも書き出し、図や画像まで漏れなく読む"
     }
   ]
 }

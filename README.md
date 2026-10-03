@@ -18,6 +18,14 @@ Claude Code の plugin marketplace。
 /plugin install sdd@so-ota-plugins
 ```
 
+- `gdrive`: Google Drive のファイルを、テキストだけでなく PDF と Office 形式でも書き出し、図や画像まで漏れなく読む。書き出しのデコードは `plugins/gdrive/scripts/drivefile.py`（Python 3.9 以上、標準ライブラリだけで動く。macOS と Linux（WSL を含む）で動かす。Windows では動作を保証しない）
+  - skill: `/gdrive:fetch`（Drive のファイルを読む。Drive の URL やファイルを読むときは、呼ばなくても自分から起動する）
+  - Google Drive の MCP（`read_file_content`・`download_file_content` などのツールを持つもの）をつないでおく
+
+```
+/plugin install gdrive@so-ota-plugins
+```
+
 ## ライセンス
 
 MIT
