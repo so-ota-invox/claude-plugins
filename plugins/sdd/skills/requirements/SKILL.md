@@ -1,7 +1,7 @@
 ---
 name: requirements
-description: 要件定義書（specs/<slug>/requirements.md）を sdd の型で起草する。チケットや依頼文から書くか、よそで書かれた要件定義書を取り込み、refine と逆質問まで行う。書きかけの要件定義書を渡せば、残った要確認から逆質問を続ける。
-argument-hint: <チケット・依頼文・元の文書のパス、または書きかけの要件定義書のパス>
+description: 要件定義書（specs/<slug>/requirements.md）を sdd の型で起草する。チケット・依頼文・よそで書かれた文書などを材料に調べて書き、refine と逆質問まで行う。書きかけの要件定義書を渡せば、残った要確認から逆質問を続ける。
+argument-hint: <チケット・依頼文・資料のパス、または書きかけの要件定義書のパス>
 ---
 
 # requirements
@@ -13,7 +13,7 @@ argument-hint: <チケット・依頼文・元の文書のパス、または書�
 - 型: `<plugin>/formats/common.md` と `<plugin>/formats/requirements.md`
 - 手順: `<plugin>/procedures/draft.md`
 - 調査の agent: `impact-analyst`
-- 前の工程は無い。呼び出しで渡されたもの（チケット、依頼文、よそで書かれた要件定義書）から書く
+- 前の工程は無い。呼び出しで渡されたもの（チケット、依頼文、よそで書かれた文書）を材料に書く
 
 ## 入口
 
