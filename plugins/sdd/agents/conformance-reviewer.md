@@ -19,6 +19,7 @@ tools: Read, Glob, Grep, Write
 
 - plugin の `formats/common.md` と、文書の種類の型（`formats/requirements.md`・`design.md`・`plan.md` のどれか）
 - 文書と、管理情報の親と上流に挙がった文書
+- 基本設計書なら、文書からリンクした画面モック（`mocks/<画面>.html`）
 
 ## 見ること
 
@@ -27,6 +28,7 @@ tools: Read, Glob, Grep, Write
 - AC がテストできる形か
 - 曖昧な語（「適切に」「など」「高速に」など、人によって読みが変わる語）
 - 型の記入要領に沿っているか（例: 要件定義書の R に作り方を書いていないか）
+- 画面モック: 項目・ふるまい・状態が画面設計と上流に揃っているか、common.md の「置き場」の形か（外部の CSS・JS・画像を使っていないか）、社名・人名が実在しないダミーか
 
 check が照合すること（common.md の「check」）と、既存コードについての主張の真偽は見ない。
 
