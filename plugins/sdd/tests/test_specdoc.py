@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import specdoc
 
-SPEC = "specs/12-invoice"
+SPEC = "specs/invoice"
 REQ = f"{SPEC}/requirements.md"
 DESIGN = f"{SPEC}/design.md"
 PLAN = f"{SPEC}/plan.md"
@@ -365,7 +365,7 @@ class CheckTest(unittest.TestCase):
             ("（例: AC-billing-001）", "", "凡例の文言が違う。common.md の文言をそのまま書く"),
             ("- 承認者: 佐藤\n", "- 承認者: 佐藤\n- 担当: 鈴木\n", "管理情報に使えない項目: 担当（使えるのは 著者・状態・承認者・凡例・親・上流・元の文書）"),
             ("- 著者: 山田\n", "", "管理情報の項目が無い: 著者"),
-            ("- 凡例:", "- 親: specs/12-invoice/requirements.md\n- 凡例:", "親は子の文書だけに書く"),
+            ("- 凡例:", f"- 親: {REQ}\n- 凡例:", "親は子の文書だけに書く"),
         ]
         original = self.repo.read(REQ)
         for old, new, expected in cases:
@@ -441,20 +441,22 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.repo.messages(DESIGN), ["定義の無い番号: Q-001"])
 
     def test_spec_dir_name(self):
-        expected = "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）"
+        expected = "specs/ の下のディレクトリ名は <slug> にする（英小文字・数字をハイフンでつなぐ）"
         bad = (
-            "specs/invoice/requirements.md",
             "specs/12 invoice/requirements.md",
             "specs/12_invoice/requirements.md",
             "specs/12-Invoice/requirements.md",
+            "specs/PROJ-12-invoice/requirements.md",
+            "specs/-invoice/requirements.md",
+            "specs/invoice-/requirements.md",
         )
         text = self.repo.read(REQ)
         for rel in bad:
             with self.subTest(rel=rel):
                 self.repo.write(rel, text)
                 self.assertEqual(self.repo.messages(rel), [expected])
-        # チケット番号の <id> は大文字を含んでよい
-        rel = "specs/PROJ-12-invoice/requirements.md"
+        # 数字の語を含んでもよい（1 語だけの形は SPEC で確かめている）
+        rel = "specs/12-billing/requirements.md"
         self.repo.write(rel, text)
         self.assertEqual(self.repo.messages(rel), [])
 
@@ -728,11 +730,11 @@ class CheckTest(unittest.TestCase):
 
     def test_location(self):
         self.repo.write("docs/design.md", self.repo.read(DESIGN))
-        self.assertEqual(self.repo.messages("docs/design.md"), ["specs/<id>-<slug>/ の下に置く"])
+        self.assertEqual(self.repo.messages("docs/design.md"), ["specs/<slug>/ の下に置く"])
         self.repo.write(f"{SPEC}/billing/requirements.md", self.repo.read(REQ))
         self.assertEqual(
             self.repo.messages(f"{SPEC}/billing/requirements.md"),
-            ["要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く"],
+            ["要件定義書は分けない。specs/<slug>/requirements.md に置く"],
         )
 
     def test_specs_must_be_at_the_repository_root(self):
@@ -1137,7 +1139,7 @@ class HtmlTest(unittest.TestCase):
         self.repo.write("docs/design.md", self.repo.read(DESIGN))
         written, errors, _ = specdoc.run_html([str(self.repo.path("docs/design.md"))])
         self.assertEqual(written, [])
-        self.assertEqual([msg for _, _, msg in errors], ["specs/<id>-<slug>/ の下に置く"])
+        self.assertEqual([msg for _, _, msg in errors], ["specs/<slug>/ の下に置く"])
 
     def test_no_output_on_document_name_case(self):
         # 名前の大文字・小文字だけが違う文書は書き出さず、ほかの文書は書き出し続ける
@@ -1437,7 +1439,7 @@ class CliTest(unittest.TestCase):
             (SPEC, "ファイルを指定する"),
             ("README.md", not_typed),
             (f"{SPEC}/mocks/list.html", not_typed),
-            ("docs/design.md", "specs/<id>-<slug>/ の下に置く"),
+            ("docs/design.md", "specs/<slug>/ の下に置く"),
         ]
         # 大文字・小文字を区別しないファイルシステムでも、名前の違いを誤りにする
         self.repo.write("specs/PROJ-12-invoice/requirements.md", self.repo.read(REQ))

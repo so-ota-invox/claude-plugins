@@ -13,7 +13,7 @@ tools: Read, Glob, Grep, Write
 ## 受け取るもの
 
 - 元の文書（ファイルのパスか、貼り付けた本文）
-- 書き出す文書のパス（`specs/<id>-<slug>/requirements.md` など）
+- 書き出す文書のパス（`specs/<slug>/requirements.md` など）
 - 著者と、上流の行（設計書と実装プランだけ）
 - sdd plugin のディレクトリ
 

@@ -4,10 +4,10 @@
 
 ## 置き場
 
-- 要件 1 件につき、リポジトリルート（.git のあるディレクトリ）の直下に `specs/<id>-<slug>/` を作る。`<id>` はチケット番号（英数字とハイフン）、無ければ連番。`<slug>` は英小文字・数字・ハイフン。`<id>` と `<slug>` の境目は機械では分からないので、check が確かめるのは、英数字をハイフンでつないだ形であることと、最後の語が英小文字・数字であることだけ
+- 要件 1 件につき、リポジトリルート（.git のあるディレクトリ）の直下に `specs/<slug>/` を作る。`<slug>` は英小文字・数字をハイフンでつないだ名前で、ほかの要件と重ねない
 - ファイル名は requirements.md・design.md・plan.md に固定する
 - パスの大文字・小文字は、実際の名前と揃える。大文字・小文字を区別しない macOS でも、Linux と同じく違う名前として扱う。リンク先のパスの文字は NFC で書く
-- 設計を子に分けたときは、子ごとに `specs/<id>-<slug>/<子の名前>/` を作り、design.md と plan.md を置く。要件定義書は分けない。階層は親と子の 2 段まで
+- 設計を子に分けたときは、子ごとに `specs/<slug>/<子の名前>/` を作り、design.md と plan.md を置く。要件定義書は分けない。階層は親と子の 2 段まで
 - 子の名前は、どの語も英小文字で始まる英小文字・数字の 1〜2 語で、2 語はハイフンでつなぐ（`phase2` は使えるが `phase-2` は使えない）。同じ要件の中で重ねない。`mocks` と `specs` は使えない
 - 子の名前は親の設計書の「サブ機能分割」で決め、親と一緒に承認する。番号とパスに入るので、承認した後は変えない
 - 画面モックは `mocks/<画面>.html` に 1 画面 1 ファイルで置く。外部の CSS・JS・画像を使わない。モックは HTML が正本で、Git で管理する
@@ -44,10 +44,10 @@
 - 状態: approved
 - 承認者: 佐藤
 - 凡例: R = 要件、AC = 受け入れ基準、S = シナリオ、Q = 要確認。子の番号は間に子の名前が入る（例: AC-billing-001）
-- 親: specs/12-invoice/design.md
+- 親: specs/invoice/design.md
 - 上流:
-  - specs/12-invoice/requirements.md@3f2a9c0d1b7e
-  - specs/12-invoice/design.md@8c41d09e2a6f
+  - specs/invoice/requirements.md@3f2a9c0d1b7e
+  - specs/invoice/design.md@8c41d09e2a6f
 ```
 
 ## 上流と hash
@@ -142,10 +142,10 @@
 
 ## 指摘
 
-review は指摘を文書の隣の指摘のファイル `<文書名>.review.md`（`specs/12-invoice/design.md` なら `specs/12-invoice/design.review.md`）に 1 件 1 箇条で書き、review のたびに上書きする。途中で agent ごとの指摘を、同じ形で報告のファイル `<文書名>.<agent の名前>.review.md`（`specs/12-invoice/design.fact-checker.review.md` など）に書く。指摘が無ければ「指摘なし」とだけ書く。
+review は指摘を文書の隣の指摘のファイル `<文書名>.review.md`（`specs/invoice/design.md` なら `specs/invoice/design.review.md`）に 1 件 1 箇条で書き、review のたびに上書きする。途中で agent ごとの指摘を、同じ形で報告のファイル `<文書名>.<agent の名前>.review.md`（`specs/invoice/design.fact-checker.review.md` など）に書く。指摘が無ければ「指摘なし」とだけ書く。
 
 ```text
-- P1 specs/12-invoice/design.md:40: 問題。直し方
+- P1 specs/invoice/design.md:40: 問題。直し方
   - 根拠: 既存コードの file:line、上流の番号、または型の規則
 ```
 

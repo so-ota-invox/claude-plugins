@@ -88,8 +88,7 @@ MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
 CHILD = r"[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)?"
 CHILD_RE = re.compile(rf"^{CHILD}$")
 CHILD_RULE = "どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
-# <id> と <slug> の境目は機械では分からないので、最後の語が <slug> の規則に合うかだけを見る
-SPEC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-[a-z0-9]+$")
+SPEC_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
 DEF_RE = re.compile(rf"^((?:R|AC|S|Q)-(?:{CHILD}-)?\d{{3}}):(?: (.*))?$")
 KV_RE = re.compile(r"^([^\s:]+):(?: (.*))?$")
@@ -826,18 +825,18 @@ class Doc:
                 parts = self.path.relative_to(anc).parts
                 break
         else:
-            self.add_error(1, "specs/<id>-<slug>/ の下に置く")
+            self.add_error(1, "specs/<slug>/ の下に置く")
             return
         if len(parts) not in (2, 3):
-            self.add_error(1, "specs/<id>-<slug>/ か、その下の子のディレクトリに置く")
+            self.add_error(1, "specs/<slug>/ か、その下の子のディレクトリに置く")
             return
         if not SPEC_DIR_RE.match(parts[0]):
             # hash が出す `パス@hash` を上流の行として check が読めるようにする
-            self.add_error(1, "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）")
+            self.add_error(1, "specs/ の下のディレクトリ名は <slug> にする（英小文字・数字をハイフンでつなぐ）")
             return
         if len(parts) == 3:
             if self.doc_type == "requirements":
-                self.add_error(1, "要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く")
+                self.add_error(1, "要件定義書は分けない。specs/<slug>/requirements.md に置く")
                 return
             if not CHILD_RE.match(parts[1]) or parts[1] in RESERVED_CHILD_NAMES:
                 self.add_error(1, f"子のディレクトリ名は、{CHILD_RULE}にする")

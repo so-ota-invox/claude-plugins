@@ -1,6 +1,6 @@
 ---
 name: requirements
-description: 要件定義書（specs/<id>-<slug>/requirements.md）を sdd の型で起草する。チケットや依頼文から書くか、よそで書かれた要件定義書を取り込み、refine と逆質問まで行う。
+description: 要件定義書（specs/<slug>/requirements.md）を sdd の型で起草する。チケットや依頼文から書くか、よそで書かれた要件定義書を取り込み、refine と逆質問まで行う。
 argument-hint: <チケット・依頼文・元の文書のパス>
 ---
 
@@ -19,7 +19,7 @@ argument-hint: <チケット・依頼文・元の文書のパス>
 
 - 渡されたものを読む。チケットは使える手段（MCP など）で読み、読めなければ本文を貼ってもらう
 - 渡されたものが 2 件以上の対象に広がると分かったら、全部を対象にするか一部でよいかを聞き、1 件ずつ起草する
-- 置き場は `specs/<id>-<slug>/requirements.md`。`<id>` と `<slug>` は common.md の「置き場」に従って決める
+- 置き場は `specs/<slug>/requirements.md`。`<slug>` は common.md の「置き場」に従って決める。`specs/<slug>/` がもうあれば、別の `<slug>` を聞く
 
 ## 起草
 
