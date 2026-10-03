@@ -1,5 +1,6 @@
 {
   "name": "so-ota-plugins",
+  "description": "作業の手順を skill にした Claude Code の plugin 集",
   "owner": {
     "name": "so-ota-invox"
   },
