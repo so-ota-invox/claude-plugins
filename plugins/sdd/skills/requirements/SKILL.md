@@ -31,4 +31,4 @@ argument-hint: <チケット・依頼文・元の文書のパス、または書�
 - 文書と HTML のパス
 - refine の報告（逆質問の後に refine をもう 1 度行ったときは、その報告も）
 - 残った要確認の件数
-- 承認するときのコマンド: `/sdd:approve <文書>`（Codex では `$sdd:approve <文書>`）
+- レビューに出すときのコマンド: `/sdd:submit <文書>`（Codex では `$sdd:submit <文書>`）
