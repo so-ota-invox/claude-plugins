@@ -1511,7 +1511,8 @@ class Renderer:
         for it in items:
             ident = self.doc.anchors.get(id(it))
             attr = f' id="{ident}"' if ident else ""
-            body = self.inline(it.inline)
+            # 番号の定義の行は定義する番号で始まる。その番号は自分へのリンクにしない（collect_refs が参照に数えないのと同じ）
+            body = self.inline(it.inline, own=ident)
             if it.children:
                 out.append(f"<li{attr}>{body}")
                 out.extend(self.bullets(it.children))
@@ -1532,11 +1533,12 @@ class Renderer:
         out.append("</table>")
         return out
 
-    def inline(self, tokens, link_ids=True):
+    def inline(self, tokens, link_ids=True, own=None):
+        """own は、最初の語の中でリンクにしない番号。"""
         parts = []
         for tok in tokens:
             if tok[0] == "text":
-                parts.append(self.text(tok[1]) if link_ids else esc(tok[1]))
+                parts.append(self.text(tok[1], own) if link_ids else esc(tok[1]))
             elif tok[0] == "code":
                 parts.append(f"<code>{esc(tok[1])}</code>")
             elif tok[0] == "bold":
@@ -1545,14 +1547,18 @@ class Renderer:
                 href = self.link_href(tok[2])
                 label = self.inline(tok[1], False)
                 parts.append(f'<a href="{esc(href)}">{label}</a>' if href is not None else label)
+            own = None
         return "".join(parts)
 
-    def text(self, s):
-        """定義のある番号を、定義へのリンクにする。"""
+    def text(self, s, own=None):
+        """定義のある番号を、定義へのリンクにする。own と同じ番号は、最初の 1 つだけリンクにしない。"""
         out = []
         pos = 0
         for m in ID_RE.finditer(s):
             ident = m.group(0)
+            if ident == own:
+                own = None
+                continue
             target = self.doc.resolve(ident)
             if target is None:
                 continue

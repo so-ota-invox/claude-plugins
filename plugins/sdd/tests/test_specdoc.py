@@ -1089,6 +1089,13 @@ class HtmlTest(unittest.TestCase):
         up = self.repo.ref(REQ)
         self.assertIn(f'<li><a href="requirements.html">要件定義書: 請求書の一括発行</a> <code>{up}</code></li>', out)
 
+    def test_definition_number_is_not_linked_to_itself(self):
+        # 定義の行の番号は自分へのリンクにしない。同じ文書のほかの場所に書いた番号はリンクにする
+        self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- AC-001 の期限は 60 秒にする"))
+        out = self.render(DESIGN)
+        self.assertIn('<li id="AC-001">AC-001: 選んだ請求書', out)
+        self.assertIn('<li><a href="#AC-001">AC-001</a> の期限', out)
+
     def test_legend_is_not_linked(self):
         out = self.render(REQ)
         self.assertIn("（例: AC-billing-001）", out)
