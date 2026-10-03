@@ -1,0 +1,10 @@
+{
+  "name": "gdrive",
+  "version": "0.1.0",
+  "description": "Google Drive のファイルを、テキストだけでなく PDF と Office 形式でも書き出し、図や画像まで漏れなく読む",
+  "author": {
+    "name": "so-ota-invox"
+  },
+  "repository": "https://github.com/so-ota-invox/claude-plugins",
+  "license": "MIT"
+}
