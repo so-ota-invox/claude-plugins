@@ -58,6 +58,8 @@ NFR_SECTION = ("非機能要件",)
 AC_SECTION = ("受け入れ基準",)
 SCENARIO_SECTION = ("シナリオ",)
 QUESTION_SECTION = ("要確認",)
+# 下に見出しを持っても本文を空にしない見出し。ほかの見出しは、下に見出しを持てば本文が無くてよい
+BODY_PARENTS = {"requirements": ("対象サービス", "機能概要")}
 
 # 番号を定義する見出しと、そこで定義する番号の種類
 DEF_SECTIONS = {
@@ -69,30 +71,17 @@ DEF_SECTIONS = {
 ID_FIELDS = {
     "R": {},
     "AC": {"要件": True},
-    "S": {
-        "受け入れ基準": True,
-        "種別": True,
-        "層": True,
-        "前提": True,
-        "操作": True,
-        "期待": True,
-    },
+    "S": {"受け入れ基準": True, "種別": True, "層": True, "前提": True, "操作": True, "期待": True},
     "Q": {"推奨": False, "確認先": True, "期限": True, "解決する工程": True},
 }
 SPLIT_FIELDS = {"要件": True, "依存": True}
 
-MERMAID_VERSION = (
-    "12.0.0"  # 上げるときは、下の MERMAID_INTEGRITY も同じ版のファイルで計算し直す
-)
+MERMAID_VERSION = "12.0.0"  # 上げるときは、下の MERMAID_INTEGRITY も同じ版のファイルで計算し直す
 # MERMAID_URL のファイルの sha384 を base64 にした値。版を上げたら計算し直す（取得に失敗したら、空の内容の値を出さずに止まるよう、取得と計算を分ける）:
 # curl -fsSL -o mermaid.min.js <MERMAID_URL>
 # openssl dgst -sha384 -binary mermaid.min.js | openssl base64 -A
-MERMAID_INTEGRITY = (
-    "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
-)
-MERMAID_URL = (
-    f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
-)
+MERMAID_INTEGRITY = "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
+MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
 
 # 見つからないとみなす errno。ほかの OSError は「調べられない」として知らせる
 MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
@@ -100,13 +89,9 @@ MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
 # どの語も英小文字で始めるので、番号の中で数字だけの部分は最後の 3 桁だけになり、子の名前との境目が 1 通りに決まる
 CHILD = r"[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)?"
 CHILD_RE = re.compile(rf"^{CHILD}$")
-CHILD_RULE = (
-    "どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
-)
+CHILD_RULE = "どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
 SPEC_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-ID_RE = re.compile(
-    rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])"
-)
+ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
 DEF_RE = re.compile(rf"^((?:R|AC|S|Q)-(?:{CHILD}-)?\d{{3}}):(?: (.*))?$")
 KV_RE = re.compile(r"^([^\s:]+):(?: (.*))?$")
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -124,9 +109,7 @@ LINK_PATH_RE = re.compile(r"[^?#]*")
 ENCODED_SEP_RE = re.compile(r"%(?:2f|5c)", re.IGNORECASE)
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 UNSPLIT_RE = re.compile(r"^分割しない。理由: \S")
-ENTITY_RE = re.compile(
-    r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});"
-)
+ENTITY_RE = re.compile(r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});")
 HTML_TAG_RE = re.compile(r"<[A-Za-z/!?]")
 BANNED_LINES = (
     (re.compile(r"^ *([-*_])(?: *\1){2,} *$"), "区切り線は使えない"),
@@ -224,11 +207,7 @@ def bad_repo_path(rel):
 
     check は上流と親を決まったパスとの一致で照らすので、この判定を使わない。html は照合をしないので、ここでリポジトリの外や絶対パスへのリンクを防ぐ。
     """
-    return (
-        rel.startswith("/")
-        or "\\" in rel
-        or any(p in ("", ".", "..") for p in rel.split("/"))
-    )
+    return rel.startswith("/") or "\\" in rel or any(p in ("", ".", "..") for p in rel.split("/"))
 
 
 def split_id(ident):
@@ -278,12 +257,7 @@ def scan_code(s, i):
             m += 1
         if m - k == run:
             content = s[j:k]
-            if (
-                len(content) >= 2
-                and content[0] == " "
-                and content[-1] == " "
-                and content.strip(" ")
-            ):
+            if len(content) >= 2 and content[0] == " " and content[-1] == " " and content.strip(" "):
                 content = content[1:-1]
             return m, content
         k = m
@@ -306,9 +280,7 @@ def find_outside_code(s, target, start):
 
 def check_text(text, errors):
     if "*" in text:
-        errors.append(
-            "コードの外で * を使わない（太字は ** で囲む。記号として書くならコードで囲む）"
-        )
+        errors.append("コードの外で * を使わない（太字は ** で囲む。記号として書くならコードで囲む）")
     for k, ch in enumerate(text):
         if ch != "_":
             continue
@@ -373,7 +345,7 @@ def parse_inline(s, errors, in_link=False, in_bold=False):
         if s.startswith("**", i) and not in_bold:
             close = find_outside_code(s, "**", i + 2)
             if close > i + 2:
-                inner = s[i + 2 : close]
+                inner = s[i + 2:close]
                 if inner != inner.strip():
                     errors.append("太字の内側の端に空白を置かない")
                 flush()
@@ -386,23 +358,15 @@ def parse_inline(s, errors, in_link=False, in_bold=False):
             close = find_outside_code(s, "]", i + 1)
             if close > 0 and s.startswith("(", close + 1):
                 end = s.find(")", close + 2)
-                dest = s[close + 2 : end] if end > 0 else ""
+                dest = s[close + 2:end] if end > 0 else ""
                 if end < 0 or not LINK_DEST_RE.match(dest) or close == i + 1:
-                    errors.append(
-                        "リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない"
-                    )
+                    errors.append("リンクは `[文字](先)` の形で書く。先に空白と括弧を入れない")
                 else:
                     msg = link_dest_error(dest)
                     if msg:
                         errors.append(msg)
                     flush()
-                    tokens.append(
-                        (
-                            "link",
-                            parse_inline(s[i + 1 : close], errors, True, in_bold),
-                            dest,
-                        )
-                    )
+                    tokens.append(("link", parse_inline(s[i + 1:close], errors, True, in_bold), dest))
                     i = end + 1
                     continue
         buf.append(s[i])
@@ -525,9 +489,7 @@ class Parser:
                 i = self.para(i)
             need_blank = True
         first = self.blocks[0] if self.blocks else None
-        if not (
-            first and first.kind == "heading" and first.level == 1 and first.line == 1
-        ):
+        if not (first and first.kind == "heading" and first.level == 1 and first.line == 1):
             self.error(1, "1 行目は # の見出しにする")
 
     def heading(self, i):
@@ -563,12 +525,7 @@ class Parser:
             item = Item(ln, text, self.inline(text, ln))
             if not text:
                 self.error(ln, "空の箇条")
-            elif (
-                text.startswith("```")
-                or HEADING_RE.match(text)
-                or LIST_RE.match(text)
-                or banned(text)
-            ):
+            elif text.startswith("```") or HEADING_RE.match(text) or LIST_RE.match(text) or banned(text):
                 self.error(ln, "箇条の先頭に書式の記号を置かない")
             if indent == 0:
                 blk.items.append(item)
@@ -592,16 +549,10 @@ class Parser:
         blk.header = [(cell, self.inline(cell, i + 1)) for cell in header]
         j = i + 1
         sep = split_row(self.lines[j].rstrip()) if j < len(self.lines) else None
-        if (
-            sep is not None
-            and len(sep) == len(header)
-            and all(SEPARATOR_CELL_RE.match(c) for c in sep)
-        ):
+        if sep is not None and len(sep) == len(header) and all(SEPARATOR_CELL_RE.match(c) for c in sep):
             j += 1
         else:
-            self.error(
-                i + 1, "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする"
-            )
+            self.error(i + 1, "表の 2 行目は、見出し行と同じ数の `| --- |` の区切りにする")
         while j < len(self.lines) and self.lines[j].rstrip().startswith("|"):
             self.check_tab(j)
             cells = split_row(self.lines[j].rstrip())
@@ -609,12 +560,8 @@ class Parser:
                 self.error(j + 1, "表の行は | で始めて | で終える")
                 cells = []
             elif len(cells) != len(header):
-                self.error(
-                    j + 1, "表の列の数が見出し行と違う（セルの中に | を書かない）"
-                )
-            blk.rows.append(
-                (j + 1, [(cell, self.inline(cell, j + 1)) for cell in cells])
-            )
+                self.error(j + 1, "表の列の数が見出し行と違う（セルの中に | を書かない）")
+            blk.rows.append((j + 1, [(cell, self.inline(cell, j + 1)) for cell in cells]))
             j += 1
         self.blocks.append(blk)
         return j
@@ -630,7 +577,7 @@ class Parser:
         j = i + 1
         while j < len(self.lines) and self.lines[j].rstrip() != "```":
             j += 1
-        blk.code = self.lines[i + 1 : j]
+        blk.code = self.lines[i + 1:j]
         self.blocks.append(blk)
         if j >= len(self.lines):
             self.error(ln, "コードブロックが閉じていない")
@@ -668,26 +615,15 @@ class Template:
     """formats/ の雛形。見出しの構造と、分割したとき親だけに置く見出しを持つ。"""
 
     def __init__(self, doc_type):
-        blocks = Parser(
-            (FORMATS_DIR / f"{doc_type}.md").read_bytes().decode("utf-8")
-        ).blocks
+        blocks = Parser((FORMATS_DIR / f"{doc_type}.md").read_bytes().decode("utf-8")).blocks
         self.title = blocks[0].text
-        self.headings = [
-            (b.level, b.text) for b in blocks if b.kind == "heading" and b.level >= 2
-        ]
+        self.headings = [(b.level, b.text) for b in blocks if b.kind == "heading" and b.level >= 2]
         self.parent_only = set()
         if len(blocks) > 1 and blocks[1].kind == "bullets":
             for item in blocks[1].items:
                 m = KV_RE.match(item.text)
-                if (
-                    m
-                    and m.group(1) == PARENT_ONLY_KEY
-                    and m.group(2)
-                    and m.group(2) != NONE_VALUE
-                ):
-                    self.parent_only = {
-                        name.strip() for name in m.group(2).split(LIST_SEP)
-                    }
+                if m and m.group(1) == PARENT_ONLY_KEY and m.group(2) and m.group(2) != NONE_VALUE:
+                    self.parent_only = {name.strip() for name in m.group(2).split(LIST_SEP)}
 
     def expected(self, child):
         """文書が持つべき見出しを (階層, 文字) の列で返す。子は親だけの見出しとその下を除く。"""
@@ -734,13 +670,8 @@ def parse_ids(field, key, want, err, allow_none=False):
     if not value or (allow_none and value == NONE_VALUE):
         return []
     ids = [m.group(0) for m in ID_RE.finditer(value)]
-    if any(not ID_RE.fullmatch(p) for p in value.split(LIST_SEP)) or any(
-        split_id(i)[0] != want for i in ids
-    ):
-        err(
-            item.line,
-            f"{key} は `{want}-001、{want}-002` のように番号を「、」で区切って書く",
-        )
+    if any(not ID_RE.fullmatch(p) for p in value.split(LIST_SEP)) or any(split_id(i)[0] != want for i in ids):
+        err(item.line, f"{key} は `{want}-001、{want}-002` のように番号を「、」で区切って書く")
     elif len(set(ids)) != len(ids):
         err(item.line, f"{key} に同じ番号を重ねて書かない")
     return [i for i in ids if split_id(i)[0] == want]
@@ -828,9 +759,7 @@ class Doc:
         return f"{rel}/{child}/{doc_type}.md" if child else f"{rel}/{doc_type}.md"
 
     def spec_doc(self, doc_type, child=None):
-        return self.ws.load(
-            self.root.joinpath(*self.spec_path(doc_type, child).split("/"))
-        )
+        return self.ws.load(self.root.joinpath(*self.spec_path(doc_type, child).split("/")))
 
     def can_refer(self, ident):
         """番号を定義する文書が、この文書か上流の文書なら真。下流と別の子の番号は参照しない。"""
@@ -838,10 +767,7 @@ class Doc:
         if typ in ("R", "Q"):
             return True
         doc_type = "design" if typ == "AC" else "plan"
-        return STAGES.index(doc_type) <= STAGES.index(self.doc_type) and child in (
-            None,
-            self.child,
-        )
+        return STAGES.index(doc_type) <= STAGES.index(self.doc_type) and child in (None, self.child)
 
     def resolve(self, ident):
         """番号を定義している文書を返す。無ければ None。下流と別の子の文書は開かない。"""
@@ -897,16 +823,11 @@ class Doc:
             self.add_error(1, "specs/<slug>/ か、その下の子のディレクトリに置く")
             return
         if not SPEC_DIR_RE.match(parts[0]):
-            self.add_error(
-                1,
-                "specs/ の下のディレクトリ名は <slug> にする（英小文字・数字をハイフンでつなぐ）",
-            )
+            self.add_error(1, "specs/ の下のディレクトリ名は <slug> にする（英小文字・数字をハイフンでつなぐ）")
             return
         if len(parts) == 3:
             if self.doc_type == "requirements":
-                self.add_error(
-                    1, "要件定義書は分けない。specs/<slug>/requirements.md に置く"
-                )
+                self.add_error(1, "要件定義書は分けない。specs/<slug>/requirements.md に置く")
                 return
             if not CHILD_RE.match(parts[1]) or parts[1] in RESERVED_CHILD_NAMES:
                 self.add_error(1, f"子のディレクトリ名は、{CHILD_RULE}にする")
@@ -921,9 +842,7 @@ class Doc:
             return
         if not at_root:
             # 上流と親のパスをリポジトリルートからにする
-            self.add_error(
-                1, "specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く"
-            )
+            self.add_error(1, "specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く")
             return
         if not exact:
             self.add_error(1, "パスの大文字・小文字が実際の名前と違う")
@@ -958,10 +877,7 @@ class Doc:
             self.meta_block = blocks[k]
             k += 1
         else:
-            err(
-                blocks[k].line if k < len(blocks) else 1,
-                "見出しの直後に管理情報（`- 著者: …`）を書く",
-            )
+            err(blocks[k].line if k < len(blocks) else 1, "見出しの直後に管理情報（`- 著者: …`）を書く")
         current = None
         h2 = None
         for b in blocks[k:]:
@@ -997,19 +913,14 @@ class Doc:
                 continue
             key, value = m.group(1), (m.group(2) or "").strip()
             if key not in META_KEYS:
-                err(
-                    item.line,
-                    f"管理情報に使えない項目: {key}（使えるのは {MSG_SEP.join(META_KEYS)}）",
-                )
+                err(item.line, f"管理情報に使えない項目: {key}（使えるのは {MSG_SEP.join(META_KEYS)}）")
                 continue
             if key in self.meta:
                 err(item.line, f"管理情報の項目が重なっている: {key}")
                 continue
             pos = META_KEYS.index(key)
             if pos < last:
-                err(
-                    item.line, f"管理情報の順序が違う（{MSG_SEP.join(META_KEYS)} の順）"
-                )
+                err(item.line, f"管理情報の順序が違う（{MSG_SEP.join(META_KEYS)} の順）")
             last = max(last, pos)
             self.meta[key] = (item, value)
             if item.children and key != "上流":
@@ -1032,10 +943,7 @@ class Doc:
                 err(state[0].line, f"状態は {MSG_SEP.join(STATES)} のどれか")
         approver = self.meta.get("承認者")
         if self.state == "approved" and (approver is None or not approver[1]):
-            err(
-                approver[0].line if approver else state[0].line,
-                "approved のときは承認者を書く",
-            )
+            err(approver[0].line if approver else state[0].line, "approved のときは承認者を書く")
         # 状態が無い・誤っているときは、承認者のエラーを重ねず状態のエラーだけを出す
         if self.state in ("draft", "review") and approver is not None:
             err(approver[0].line, "承認者は approved のときだけ書く")
@@ -1084,21 +992,14 @@ class Doc:
             at = actual[a1].line if a1 < len(actual) else self.line_count
             for level, text in expected[b1:b2]:
                 err(at, f"見出しが無い: {'#' * level} {text}")
-        heads = [
-            (k, b)
-            for k, b in enumerate(self.blocks)
-            if b.kind == "heading" and b.level >= 2
-        ]
+        heads = [(k, b) for k, b in enumerate(self.blocks) if b.kind == "heading" and b.level >= 2]
         for n, (k, b) in enumerate(heads):
             nxt = heads[n + 1] if n + 1 < len(heads) else None
-            if nxt and nxt[1].level > b.level:
+            if nxt and nxt[1].level > b.level and b.text not in BODY_PARENTS.get(self.doc_type, ()):
                 continue
             end = nxt[0] if nxt else len(self.blocks)
             if end == k + 1:
-                err(
-                    b.line,
-                    f"本文が空: {'#' * b.level} {b.text}。書く内容が無ければ「なし」と書く",
-                )
+                err(b.line, f"本文が空: {'#' * b.level} {b.text}。書く内容が無ければ「なし」と書く")
 
     def read_defs(self, err):
         places = DEF_SECTIONS[self.doc_type]
@@ -1112,10 +1013,7 @@ class Doc:
                 for item in b.items:
                     m = DEF_RE.match(item.text)
                     if not m or split_id(m.group(1))[0] != want:
-                        err(
-                            item.line,
-                            f"一番上の箇条は `{self.example_id(want)}: 本文` の形で書く",
-                        )
+                        err(item.line, f"一番上の箇条は `{self.example_id(want)}: 本文` の形で書く")
                         continue
                     ident, text = m.group(1), (m.group(2) or "").strip()
                     typ, child = split_id(ident)
@@ -1123,20 +1021,11 @@ class Doc:
                         if child:
                             err(item.line, f"{typ} の番号に子の名前は入れない: {ident}")
                     elif self.child and child != self.child:
-                        err(
-                            item.line,
-                            f"子の文書の {typ} は `{self.example_id(typ)}` の形にする: {ident}",
-                        )
+                        err(item.line, f"子の文書の {typ} は `{self.example_id(typ)}` の形にする: {ident}")
                     elif not self.child and child:
-                        err(
-                            item.line,
-                            f"{typ} の番号に子の名前を入れるのは子の文書だけ: {ident}",
-                        )
+                        err(item.line, f"{typ} の番号に子の名前を入れるのは子の文書だけ: {ident}")
                     if ident in self.defs:
-                        err(
-                            item.line,
-                            f"番号が重なっている: {ident}（{self.defs[ident].line} 行目）",
-                        )
+                        err(item.line, f"番号が重なっている: {ident}（{self.defs[ident].line} 行目）")
                         continue
                     if not text:
                         err(item.line, f"本文が空: {ident}")
@@ -1151,36 +1040,21 @@ class Doc:
         elif typ == "S":
             if "受け入れ基準" in fields:
                 field = fields["受け入れ基準"]
-                self.s_acs[ident] = (
-                    field[0].line,
-                    parse_ids(field, "受け入れ基準", "AC", err),
-                )
+                self.s_acs[ident] = (field[0].line, parse_ids(field, "受け入れ基準", "AC", err))
             scenario_kind = fields.get("種別")
-            if (
-                scenario_kind
-                and scenario_kind[1]
-                and scenario_kind[1] not in SCENARIO_KINDS
-            ):
-                err(
-                    scenario_kind[0].line,
-                    f"種別は {MSG_SEP.join(SCENARIO_KINDS)} のどれか",
-                )
+            if scenario_kind and scenario_kind[1] and scenario_kind[1] not in SCENARIO_KINDS:
+                err(scenario_kind[0].line, f"種別は {MSG_SEP.join(SCENARIO_KINDS)} のどれか")
         elif typ == "Q":
             stage = fields.get("解決する工程")
             if stage and stage[1]:
-                allowed = STAGES[STAGES.index(self.doc_type) :]
+                allowed = STAGES[STAGES.index(self.doc_type):]
                 if stage[1] in allowed:
                     self.q_stage[ident] = (item.line, stage[1])
                 elif stage[1] in STAGES:
                     # 済んだ工程に関わる問いは、上流の文書の要確認にする
-                    err(
-                        stage[0].line,
-                        f"{self.doc_type}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか",
-                    )
+                    err(stage[0].line, f"{self.doc_type}.md の解決する工程は {MSG_SEP.join(allowed)} のどれか")
                 else:
-                    err(
-                        stage[0].line, f"解決する工程は {MSG_SEP.join(STAGES)} のどれか"
-                    )
+                    err(stage[0].line, f"解決する工程は {MSG_SEP.join(STAGES)} のどれか")
 
     def collect_refs(self):
         for line, tokens, item, blk in self.inlines():
@@ -1202,10 +1076,7 @@ class Doc:
             paras = [b for b in body if b.kind == "para"]
             text = "".join(t for _, t, _ in paras[0].lines) if paras else ""
             if body and not UNSPLIT_RE.match(text):
-                err(
-                    (paras or body)[0].line,
-                    "分割しないときは「分割しない。理由: …」と書く",
-                )
+                err((paras or body)[0].line, "分割しないときは「分割しない。理由: …」と書く")
             return
         owners = {}  # R -> 最初に割り当てた子の名前
         for b in lists:
@@ -1213,10 +1084,7 @@ class Doc:
                 m = KV_RE.match(item.text)
                 name = m.group(1) if m else ""
                 if not m or not CHILD_RE.match(name) or name in RESERVED_CHILD_NAMES:
-                    err(
-                        item.line,
-                        f"子は `- 子の名前: 説明` の形で書く。子の名前は{CHILD_RULE}",
-                    )
+                    err(item.line, f"子は `- 子の名前: 説明` の形で書く。子の名前は{CHILD_RULE}")
                     continue
                 if name in self.split:
                     err(item.line, f"子の名前が重なっている: {name}")
@@ -1225,18 +1093,11 @@ class Doc:
                     err(item.line, f"説明が空: {name}")
                 fields = read_fields(item, name, SPLIT_FIELDS, err)
                 # AC の「要件」（read_id_fields）と同じ読み方にする
-                reqs = (
-                    parse_ids(fields["要件"], "要件", "R", err, True)
-                    if "要件" in fields
-                    else []
-                )
+                reqs = parse_ids(fields["要件"], "要件", "R", err, True) if "要件" in fields else []
                 for r in reqs:
                     owner = owners.setdefault(r, name)
                     if owner != name:
-                        err(
-                            fields["要件"][0].line,
-                            f"2 つ以上の子に割り当てた R: {r}（{owner} と {name}。子をまたぐ R は割り当てず、この文書の AC で受ける）",
-                        )
+                        err(fields["要件"][0].line, f"2 つ以上の子に割り当てた R: {r}（{owner} と {name}。子をまたぐ R は割り当てず、この文書の AC で受ける）")
                 dep = fields.get("依存")
                 if dep and dep[1] and dep[1] != NONE_VALUE:
                     deps = [d.strip() for d in dep[1].split(LIST_SEP)]
@@ -1244,10 +1105,7 @@ class Doc:
                         err(dep[0].line, "依存 に同じ子を重ねて書かない")
                     for d in deps:
                         if d not in self.split:
-                            err(
-                                dep[0].line,
-                                f"依存には、先に並べた子を書く（並び順が実装順）: {d}",
-                            )
+                            err(dep[0].line, f"依存には、先に並べた子を書く（並び順が実装順）: {d}")
                 self.split[name] = reqs
 
     def read_tables(self, err):
@@ -1260,10 +1118,7 @@ class Doc:
             raws = [raw for raw, _ in b.header]
             name = code_name(b.header[0][1]) if b.header else None
             if len(raws) != ncols or tuple(raws[1:]) != TABLE_HEADER or not name:
-                err(
-                    b.line,
-                    f"テーブル定義の見出し行は | `テーブル名` | {' | '.join(TABLE_HEADER)} | にする",
-                )
+                err(b.line, f"テーブル定義の見出し行は | `テーブル名` | {' | '.join(TABLE_HEADER)} | にする")
                 continue
             if name in self.tables:
                 err(b.line, f"テーブルが重なっている: {name}")
@@ -1290,10 +1145,7 @@ class Doc:
                 continue
             for item in b.items:
                 if not item.children:
-                    err(
-                        item.line,
-                        f"処理の下に {MSG_SEP.join(DATA_OPS)} の箇条を 1 つ以上書く",
-                    )
+                    err(item.line, f"処理の下に {MSG_SEP.join(DATA_OPS)} の箇条を 1 つ以上書く")
                     continue
                 seen = set()
                 for c in item.children:
@@ -1445,9 +1297,7 @@ def check_coverage(doc, err):
                 err(1, f"要件定義書が無い: {doc.spec_path('requirements')}")
                 return
             assigned = {r for reqs in (doc.split or {}).values() for r in reqs}
-            wanted = [
-                r for r in req.defs if split_id(r)[0] == "R" and r not in assigned
-            ]
+            wanted = [r for r in req.defs if split_id(r)[0] == "R" and r not in assigned]
             note = ""
         else:
             top = listed_in_parent(doc, err)
@@ -1472,10 +1322,7 @@ def check_coverage(doc, err):
             for ac in acs:
                 covered.add(ac)
                 if ac not in design.defs and doc.resolve(ac) is not None:
-                    err(
-                        line,
-                        f"受け入れ基準には同じディレクトリの設計書の AC を書く: {ac}",
-                    )
+                    err(line, f"受け入れ基準には同じディレクトリの設計書の AC を書く: {ac}")
         at = doc.heading_line(SCENARIO_SECTION)
         for ac in design.defs:
             if split_id(ac)[0] == "AC" and ac not in covered:
@@ -1496,10 +1343,7 @@ def check_gate(doc, gate, require_approved, err):
         if gate and STAGES.index(stage) <= STAGES.index(gate):
             err(line, f"解決する工程が {stage} の要確認が残っている: {q}")
         elif doc.state in ("review", "approved") and stage == doc.doc_type:
-            err(
-                line,
-                f"{doc.state} の文書に、解決する工程が {stage} の要確認が残っている: {q}",
-            )
+            err(line, f"{doc.state} の文書に、解決する工程が {stage} の要確認が残っている: {q}")
     if require_approved and doc.state != "approved":
         entry = doc.meta.get("状態")
         err(entry[0].line if entry else 1, "状態が approved でない")
@@ -1549,7 +1393,7 @@ class Renderer:
             return dest
         path = link_path(dest)
         target = Path(os.path.normpath(str(self.doc.path.parent / unquote(path))))
-        return self.html_href(path, target) + dest[len(path) :]
+        return self.html_href(path, target) + dest[len(path):]
 
     def html_href(self, href, target):
         """href の最後の名前が型の文書で、target が specs/ の下の置き場の合った文書なら、.md を .html に書き換える。"""
@@ -1560,9 +1404,7 @@ class Renderer:
         return href
 
     def href_to(self, path):
-        return os.path.relpath(str(path), str(self.doc.path.parent)).replace(
-            os.sep, "/"
-        )
+        return os.path.relpath(str(path), str(self.doc.path.parent)).replace(os.sep, "/")
 
     def render(self):
         doc = self.doc
@@ -1587,11 +1429,7 @@ class Renderer:
             elif b.kind == "heading":
                 out.append(f"<h{b.level}>{self.inline(b.inline)}</h{b.level}>")
             elif b.kind == "para":
-                out.append(
-                    "<p>"
-                    + "\n".join(self.inline(inl) for _, _, inl in b.lines)
-                    + "</p>"
-                )
+                out.append("<p>" + "\n".join(self.inline(inl) for _, _, inl in b.lines) + "</p>")
             elif b.kind == "bullets":
                 out.extend(self.bullets(b.items))
             elif b.kind == "table":
@@ -1601,17 +1439,11 @@ class Renderer:
                 if b.lang == "mermaid":
                     out.append(f'<pre class="mermaid">{code}</pre>')
                 else:
-                    out.append(
-                        f'<pre><code class="language-{esc(b.lang)}">{code}</code></pre>'
-                    )
+                    out.append(f'<pre><code class="language-{esc(b.lang)}">{code}</code></pre>')
         out.append("</main>")
         if any(b.kind == "fence" and b.lang == "mermaid" for b in doc.blocks):
-            out.append(
-                f'<script src="{MERMAID_URL}" integrity="{MERMAID_INTEGRITY}" crossorigin="anonymous"></script>'
-            )
-            out.append(
-                "<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>"
-            )
+            out.append(f'<script src="{MERMAID_URL}" integrity="{MERMAID_INTEGRITY}" crossorigin="anonymous"></script>')
+            out.append("<script>if (window.mermaid) { mermaid.initialize({ startOnLoad: true }); }</script>")
         out.append("</body>")
         out.append("</html>")
         return "\n".join(out) + "\n"
@@ -1673,19 +1505,11 @@ class Renderer:
 
     def table(self, b):
         out = ["<table>", "<thead>"]
-        out.append(
-            "<tr>"
-            + "".join(f"<th>{self.inline(inl)}</th>" for _, inl in b.header)
-            + "</tr>"
-        )
+        out.append("<tr>" + "".join(f"<th>{self.inline(inl)}</th>" for _, inl in b.header) + "</tr>")
         out.append("</thead>")
         out.append("<tbody>")
         for _, cells in b.rows:
-            out.append(
-                "<tr>"
-                + "".join(f"<td>{self.inline(inl)}</td>" for _, inl in cells)
-                + "</tr>"
-            )
+            out.append("<tr>" + "".join(f"<td>{self.inline(inl)}</td>" for _, inl in cells) + "</tr>")
         out.append("</tbody>")
         out.append("</table>")
         return out
@@ -1703,9 +1527,7 @@ class Renderer:
             else:
                 href = self.link_href(tok[2])
                 label = self.inline(tok[1], False)
-                parts.append(
-                    f'<a href="{esc(href)}">{label}</a>' if href is not None else label
-                )
+                parts.append(f'<a href="{esc(href)}">{label}</a>' if href is not None else label)
             own = None
         return "".join(parts)
 
@@ -1725,7 +1547,7 @@ class Renderer:
                 href = f"#{ident}"
             else:
                 href = f"{self.href_to(target.path.with_suffix('.html'))}#{ident}"
-            out.append(esc(s[pos : m.start()]))
+            out.append(esc(s[pos:m.start()]))
             out.append(f'<a href="{esc(href)}">{esc(ident)}</a>')
             pos = m.end()
         out.append(esc(s[pos:]))
@@ -1767,9 +1589,7 @@ def run_check(args, gate=None, require_approved=False):
     checked = list(files)
     for path in files:
         doc = ws.load(path)
-        errors.extend(
-            (path, line, msg) for line, msg in check_doc(doc, gate, require_approved)
-        )
+        errors.extend((path, line, msg) for line, msg in check_doc(doc, gate, require_approved))
         if gate is None:
             continue
         # 上位の文書が approved であることは、その 1 つ下の文書の上流の照合が確かめる
@@ -1794,13 +1614,7 @@ def remove_stale_html(path, out, errors, notes):
         if stale:
             out.unlink()
     except OSError as e:
-        errors.append(
-            (
-                path,
-                1,
-                f"古い {out.name} を消せない: {e.strerror or e}。Markdown と食い違ったまま残るので、手で消す",
-            )
-        )
+        errors.append((path, 1, f"古い {out.name} を消せない: {e.strerror or e}。Markdown と食い違ったまま残るので、手で消す"))
     else:
         if stale:
             notes.append((path, 1, f"古い {out.name} を消した"))
@@ -1885,36 +1699,24 @@ def format_errors(errors):
         order.setdefault(path, len(order))
     ordered = sorted(errors, key=lambda e: (order[e[0]], e[1]))
     # 並びを保ったまま重複を除く
-    return list(
-        dict.fromkeys(f"{display(path)}:{line}: {msg}" for path, line, msg in ordered)
-    )
+    return list(dict.fromkeys(f"{display(path)}:{line}: {msg}" for path, line, msg in ordered))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        prog="specdoc.py",
-        description="要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する",
+        prog="specdoc.py", description="要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する"
     )
     sub = parser.add_subparsers(dest="command")
     sub.required = True
     p = sub.add_parser("check", help="型と照合する")
     p.add_argument(
-        "--gate",
-        choices=STAGES,
-        help="渡した文書と上位の文書に、解決する工程がこの工程かそれより前の要確認が残っていればエラーにする",
+        "--gate", choices=STAGES, help="渡した文書と上位の文書に、解決する工程がこの工程かそれより前の要確認が残っていればエラーにする"
     )
-    p.add_argument(
-        "--approved",
-        action="store_true",
-        help="渡した文書の状態が approved でなければエラーにする",
-    )
+    p.add_argument("--approved", action="store_true", help="渡した文書の状態が approved でなければエラーにする")
     p.add_argument("paths", nargs="+", metavar="PATH")
     p = sub.add_parser("html", help="Markdown の隣に HTML を書き出す")
     p.add_argument("paths", nargs="+", metavar="PATH")
-    p = sub.add_parser(
-        "proxy",
-        help="名前の人がコマンドの決まった人なら 本人、そうでなければ 代理 を出す",
-    )
+    p = sub.add_parser("proxy", help="名前の人がコマンドの決まった人なら 本人、そうでなければ 代理 を出す")
     p.add_argument("action", choices=PROXY_COMMANDS)
     p.add_argument("path", metavar="PATH")
     p.add_argument("name", metavar="NAME")
