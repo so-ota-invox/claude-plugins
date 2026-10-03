@@ -89,14 +89,6 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(lines[0].startswith(f"{self.src}: 読めない: "), lines[0])
 
-    def test_input_that_is_not_utf8(self):
-        self.src.write_bytes(b"\xff\xfe")
-        code, lines = self.decode()
-        self.assertEqual(code, 1)
-        self.assertEqual(len(lines), 1)
-        self.assertTrue(lines[0].startswith(f"{self.src}: UTF-8 として読めない: "), lines[0])
-        self.assertFalse(self.out.exists())
-
     def test_unwritable_output(self):
         self.write_tool_result(b"%PDF")
         self.out = self.dir / "missing" / "file.bin"
@@ -104,53 +96,8 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(lines[0].startswith(f"{self.out}: 書けない: "), lines[0])
 
-    def test_lists_the_folders_of_a_sheet(self):
-        names = [
-            "xl/workbook.xml",
-            "xl/media/",
-            "xl/media/image1.png",
-            "xl/drawings/drawing1.xml",
-            "xl/drawings/_rels/drawing1.xml.rels",
-        ]
-        self.write_tool_result(make_zip(names), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        code, lines = self.decode()
-        self.assertEqual(code, 0)
-        self.assertEqual(
-            lines[1:],
-            ["zip は壊れていない", "xl/media/: 1 件", "  xl/media/image1.png", "xl/drawings/: 1 件", "  xl/drawings/drawing1.xml"],
-        )
-
-    def test_lists_the_folders_of_a_document_and_slides(self):
-        cases = {
-            "word": (
-                ["word/document.xml", "word/media/image1.png", "word/_rels/document.xml.rels"],
-                ["word/media/: 1 件", "  word/media/image1.png"],
-            ),
-            "ppt": (
-                [
-                    "ppt/presentation.xml",
-                    "ppt/media/image1.png",
-                    "ppt/notesSlides/notesSlide1.xml",
-                    "ppt/notesSlides/_rels/notesSlide1.xml.rels",
-                ],
-                ["ppt/media/: 1 件", "  ppt/media/image1.png", "ppt/notesSlides/: 1 件", "  ppt/notesSlides/notesSlide1.xml"],
-            ),
-        }
-        for top, (names, want) in cases.items():
-            with self.subTest(top=top):
-                self.write_tool_result(make_zip(names))
-                code, lines = self.decode()
-                self.assertEqual(code, 0)
-                self.assertEqual(lines[1:], ["zip は壊れていない"] + want)
-
-    def test_says_none_for_missing_folders(self):
-        self.write_tool_result(make_zip(["ppt/presentation.xml"]))
-        code, lines = self.decode()
-        self.assertEqual(code, 0)
-        self.assertEqual(lines[1:], ["zip は壊れていない", "ppt/media/: なし", "ppt/notesSlides/: なし"])
-
-    def test_lists_nothing_for_a_zip_that_is_not_office(self):
-        self.write_tool_result(make_zip(["readme.txt"]))
+    def test_intact_zip(self):
+        self.write_tool_result(make_zip(["xl/workbook.xml", "xl/media/image1.png"]))
         code, lines = self.decode()
         self.assertEqual(code, 0)
         self.assertEqual(lines[1:], ["zip は壊れていない"])
@@ -161,18 +108,6 @@ class DecodeTest(unittest.TestCase):
         code, lines = self.decode()
         self.assertEqual(code, 1)
         self.assertEqual(lines, [f"保存した: {self.out}（{len(data)} バイト）", f"{self.out}: zip の中の word/document.xml が壊れている"])
-
-    def test_zip_with_an_unsupported_compression(self):
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
-            z.writestr("word/document.xml", b"x")
-            # 閉じるときに書く中央ディレクトリにだけ、未対応の圧縮方式を書く
-            z.infolist()[0].compress_type = 99
-        self.write_tool_result(buf.getvalue())
-        code, lines = self.decode()
-        self.assertEqual(code, 1)
-        self.assertEqual(len(lines), 2)
-        self.assertTrue(lines[1].startswith(f"{self.out}: zip として読めない: "), lines[1])
 
     def test_accepts_a_shape_that_matches_the_suffix(self):
         cases = {

@@ -13,8 +13,6 @@ Google Drive の MCP のツールで、ファイルの中身を漏れなく取�
 - URL の `/d/<ID>/` から ID を取り出す。URL に付いている `tab=` や `slide=` は無視してよい（取得されるのはファイル全体）
 - 手がかりが名前だけなら `search_files` で探す。0 件なら、探した語を示して止まる。複数件なら、候補を示してユーザーに選んでもらう
 - `get_file_metadata` で mimeType を確かめる
-  - フォルダ（`application/vnd.google-apps.folder`）なら、中身を読まずに、フォルダであることを報告して止まる
-  - 手順 4 と 5 のどちらにも当たらない形式（図形描画・フォームなど）は、手順 2 と 3 だけ行う【未検証】
 
 ## 2. テキストを取る
 
@@ -36,8 +34,8 @@ Google Drive の MCP のツールで、ファイルの中身を漏れなく取�
   - ドキュメント: `application/vnd.openxmlformats-officedocument.wordprocessingml.document`（保存先は `.docx`）
   - スライド: `application/vnd.openxmlformats-officedocument.presentationml.presentation`（保存先は `.pptx`）
 - `File too large for export.` が出たら、PDF（手順 3）だけで済ませ、そのことを報告する
-- 返り値を手順 6 のとおり保存する。zip として壊れていないかと、画像・図形とグラフ・スピーカーノートのフォルダの中身が出る。中の XML は、`python3 -m zipfile -e <保存したファイル> <展開先>` で同じ一時ディレクトリに展開して読む（パスの `..` と先頭の `/` を取り除いて展開し、シンボリックリンクを作らない）
-- 画像があるかどうかは、画像のフォルダ（`xl/media/`・`word/media/`・`ppt/media/`）の有無だけで決める
+- 返り値を手順 6 のとおり保存する。zip として壊れていないかが出る。`python3 -m zipfile -e <保存したファイル> <展開先>` で同じ一時ディレクトリに展開し、中の XML を読む（パスの `..` と先頭の `/` を取り除いて展開し、シンボリックリンクを作らない）
+- 画像があるかどうかは、展開先の画像のフォルダ（`xl/media/`・`word/media/`・`ppt/media/`）の有無だけで決める
 - 画像の置き場所は、本文の XML の `r:embed="rIdN"` を `_rels/*.rels` の `Target` と突き合わせて確定する。ファイル名の番号は本文の順ではない
 - スプレッドシートの図形とグラフは `xl/drawings/*.xml` にある。中身が空の `<xdr:wsDr/>` なら、図形もグラフも無い
 - スライドのスピーカーノートは `ppt/notesSlides/` から取る
@@ -66,7 +64,6 @@ Google Drive の MCP のツールで、ファイルの中身を漏れなく取�
 
 ## 未検証
 
-- 手順 1: 手順 4 と 5 のどちらにも当たらない形式の扱い
 - 手順 5: アップロードされた PDF・画像・Office ファイルの取得
 - スピーカーノートが `read_file_content` の返り値に含まれるかどうか
 - 書き出しの返り値の base64 が、標準の形式（`+` と `/` を使い、`=` で埋める）かどうか

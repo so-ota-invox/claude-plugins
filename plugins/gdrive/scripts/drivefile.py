@@ -6,8 +6,7 @@
 
 <入力> は、書き出しの返り値が保存された tool-results のファイル（content に base64 が入った JSON）か、
 base64 だけを書いたファイル。<出力> の拡張子が .pdf なら PDF の先頭と末尾を、.xlsx・.docx・.pptx なら
-zip であることを確かめる。保存したファイルが zip（Office 形式）なら、壊れていないかを確かめ、
-画像・図形とグラフ・スピーカーノートのフォルダの中身を出す。
+zip であることを確かめる。保存したファイルが zip（Office 形式）なら、壊れていないかを確かめる。
 Python 3.9 以上の標準ライブラリだけで、macOS と Linux（WSL を含む）で動く。
 """
 
@@ -20,12 +19,6 @@ import sys
 import zipfile
 import zlib
 
-# Office 形式の本体のフォルダごとに、中身を出すフォルダ。SKILL.md の手順 4 と揃える
-FOLDERS = {
-    "xl/": ("xl/media/", "xl/drawings/"),
-    "word/": ("word/media/",),
-    "ppt/": ("ppt/media/", "ppt/notesSlides/"),
-}
 OFFICE_SUFFIXES = (".xlsx", ".docx", ".pptx")
 PDF_TAIL = 1024  # PDF の %%EOF を探す、末尾のバイト数
 
@@ -67,24 +60,16 @@ def check_shape(out, data):
     return None
 
 
-def inspect_zip(path):
-    """壊れていればその理由（無ければ None）と、FOLDERS のフォルダごとの中身（_rels/ の下は除く）を返す。"""
+def check_zip(path):
+    """zip が壊れていれば、その理由を返す（壊れていなければ None）。"""
     try:
         with zipfile.ZipFile(path) as z:
             bad = z.testzip()
-            names = [n for n in z.namelist() if not n.endswith("/")]
-    except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError) as e:
-        # 暗号化された項目は RuntimeError、未対応の圧縮方式は NotImplementedError になる
-        return f"zip として読めない: {e}", []
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError) as e:
+        return f"zip として読めない: {e}"
     if bad is not None:
-        return f"zip の中の {bad} が壊れている", []
-    listing = []
-    for top, folders in FOLDERS.items():
-        if any(n.startswith(top) for n in names):
-            for folder in folders:
-                inside = [n for n in names if n.startswith(folder) and "/_rels/" not in n]
-                listing.append((folder, inside))
-    return None, listing
+        return f"zip の中の {bad} が壊れている"
+    return None
 
 
 def run_decode(src, out):
@@ -94,9 +79,7 @@ def run_decode(src, out):
             data = decode(f.read())
     except OSError as e:
         return [], [f"{src}: 読めない: {e.strerror or e}"]
-    except UnicodeDecodeError as e:
-        return [], [f"{src}: UTF-8 として読めない: {e}"]
-    except ValueError as e:
+    except ValueError as e:  # UnicodeDecodeError も含む
         return [], [f"{src}: {e}"]
     try:
         with open(out, "wb") as f:
@@ -109,13 +92,10 @@ def run_decode(src, out):
         return lines, [f"{out}: {error}"]
     if not zipfile.is_zipfile(out):
         return lines, []
-    error, listing = inspect_zip(out)
+    error = check_zip(out)
     if error:
         return lines, [f"{out}: {error}"]
     lines.append("zip は壊れていない")
-    for folder, names in listing:
-        lines.append(f"{folder}: {len(names)} 件" if names else f"{folder}: なし")
-        lines.extend(f"  {n}" for n in names)
     return lines, []
 
 
@@ -125,7 +105,7 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command")
     sub.required = True
-    p = sub.add_parser("decode", help="base64 をデコードして保存し、zip なら壊れていないかと中身を確かめる")
+    p = sub.add_parser("decode", help="base64 をデコードして保存し、zip なら壊れていないかを確かめる")
     p.add_argument("src", metavar="入力")
     p.add_argument("out", metavar="出力")
     args = parser.parse_args(argv)
