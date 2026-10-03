@@ -31,5 +31,5 @@ argument-hint: <チケット・依頼文・資料のパス、または書きか�
 - 文書と HTML のパス
 - refine の報告（逆質問の後に refine をもう 1 度行ったときは、その報告も）
 - 残った要確認の件数
-- 知らせる相手（`<plugin>/procedures/draft.md` の「下流の著者への知らせ」）
+- `<plugin>/procedures/draft.md` の「文書を変えたときの知らせ」で挙げたこと
 - レビューに出すときのコマンド: `/sdd:submit <文書>`（Codex では `$sdd:submit <文書>`）
