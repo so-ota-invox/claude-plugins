@@ -94,8 +94,8 @@ def with_body(bodies, **changes):
     return out
 
 
-def question(stage):
-    return f"- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15\n  - 解決する工程: {stage}"
+QUESTION = "- Q-001: 締め日は何日か\n  - 確認先: 経理\n  - 期限: 2026-10-15"
+OPEN_QUESTION = "情報: 要確認が残っている: Q-001"
 
 
 def lock(test, path):
@@ -145,13 +145,20 @@ class Repo:
         """specs/ の下の型の文書のパスを、名前の順に返す。specdoc.py はディレクトリを受け付けないので、渡すファイルをここで並べる。"""
         return sorted(p.relative_to(self.root).as_posix() for p in self.path("specs").rglob("*.md") if p.name in specdoc.DOC_FILES)
 
-    def check(self, *rels, gate=None, approved=False):
+    def run_check(self, rels, approved=False):
         paths = [str(self.path(r)) for r in rels or self.docs()]
-        _, errors = specdoc.run_check(paths, gate, approved)
-        return [(p.relative_to(self.root).as_posix(), line, msg) for p, line, msg in errors]
+        _, errors, notes = specdoc.run_check(paths, approved)
+        return [[(p.relative_to(self.root).as_posix(), line, msg) for p, line, msg in found] for found in (errors, notes)]
+
+    def check(self, *rels, approved=False):
+        return self.run_check(rels, approved)[0]
 
     def messages(self, *rels, **kwargs):
         return [msg for _, _, msg in self.check(*rels, **kwargs)]
+
+    def notes(self, *rels):
+        """check がエラーにせず並べる知らせを (パス, メッセージ) で返す。"""
+        return [(p, msg) for p, _, msg in self.run_check(rels)[1]]
 
     def case_error(self, rel):
         """実際の名前と大文字・小文字だけが違うパスのエラー。区別しないファイルシステムでは、そのパスでも開ける。"""
@@ -237,15 +244,14 @@ class CheckTest(unittest.TestCase):
         self.repo = Repo(self)
         self.repo.write_valid()
 
-    def write_question(self, rel, stage, state="draft"):
-        """rel の要確認に、解決する工程が stage の Q-001 を置く。"""
-        q = question(stage)
+    def write_question(self, rel, state="draft"):
+        """rel の要確認に Q-001 を置く。"""
         if rel == REQ:
-            self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q), state)
+            self.repo.write_requirements(with_body(REQ_BODIES, 要確認=QUESTION), state)
         elif rel == DESIGN:
-            self.repo.write_design(with_body(DESIGN_BODIES, 要確認=q), state)
+            self.repo.write_design(with_body(DESIGN_BODIES, 要確認=QUESTION), state)
         else:
-            self.repo.write_plan(with_body(PLAN_BODIES, 要確認=q), state)
+            self.repo.write_plan(with_body(PLAN_BODIES, 要確認=QUESTION), state)
 
     def set_ac_reqs(self, value):
         acs = DESIGN_BODIES["受け入れ基準"].replace("  - 要件: R-001、R-003", f"  - 要件: {value}")
@@ -443,7 +449,7 @@ class CheckTest(unittest.TestCase):
 
     def test_questions_are_not_referenced_from_downstream(self):
         # Q は文書ごとに 001 から数えるので、上流の文書にだけある Q-001 は参照できない
-        self.write_question(REQ, "design", "approved")
+        self.write_question(REQ, "approved")
         self.repo.write_design(with_body(DESIGN_BODIES, 設計判断="- Q-001 の回答で締め日を決める"))
         self.assertEqual(self.repo.messages(DESIGN), ["定義の無い番号: Q-001"])
 
@@ -511,23 +517,12 @@ class CheckTest(unittest.TestCase):
                 self.assertEqual(self.repo.messages(PLAN), [expected])
 
     def test_question_fields(self):
-        q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 解決する工程: 実装"
+        # 要確認はその文書の工程で解くので、解決する工程の欄は無い
+        q = "- Q-001: 取り消せる期限はあるか\n  - 推奨: 発行から 30 日\n  - 確認先: 経理\n  - 解決する工程: requirements"
         self.repo.write_requirements(with_body(REQ_BODIES, 要確認=q))
-        messages = self.repo.messages(REQ)
-        self.assertIn("Q-001 の下の項目が無い: 期限", messages)
-        self.assertIn("解決する工程は requirements・design・plan・release のどれか", messages)
-
-    def test_question_stage_must_not_precede_the_document(self):
-        cases = [
-            (DESIGN, "requirements", "design.md の解決する工程は design・plan・release のどれか"),
-            (PLAN, "requirements", "plan.md の解決する工程は plan・release のどれか"),
-            (PLAN, "design", "plan.md の解決する工程は plan・release のどれか"),
-        ]
-        for rel, stage, expected in cases:
-            with self.subTest(rel=rel, stage=stage):
-                self.repo.write_valid()
-                self.write_question(rel, stage)
-                self.assertEqual(self.repo.messages(rel), [expected])
+        self.assertEqual(
+            self.repo.messages(REQ), ["Q-001 の下に書けるのは 推奨・確認先・期限", "Q-001 の下の項目が無い: 期限"]
+        )
 
     def test_changed_upstream_does_not_stop_downstream(self):
         # 上流を書き換えても、下流の check はエラーにしない。下流との食い違いは review で見る
@@ -621,74 +616,44 @@ class CheckTest(unittest.TestCase):
         self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({name})、[y]({name}/x.md)"))
         self.assertEqual(self.repo.messages(REQ), [f"リンク先が無い: {name}", f"リンク先が無い: {name}/x.md"])
 
-    def test_gate(self):
-        # ゲートは、解決する工程がそのゲートかそれより前の要確認で止まる
-        cases = [
-            (REQ, "requirements", ("requirements", "design", "plan", "release")),
-            (DESIGN, "design", ("design", "plan", "release")),
-            (PLAN, "plan", ("plan", "release")),
-            (PLAN, "release", ("release",)),
-        ]
-        for rel, stage, stopping in cases:
-            self.repo.write_valid()
-            self.write_question(rel, stage)
-            self.assertEqual(self.repo.check(rel), [])
-            for gate in specdoc.STAGES:
-                with self.subTest(stage=stage, gate=gate):
-                    expected = [f"解決する工程が {stage} の要確認が残っている: Q-001"] if gate in stopping else []
-                    self.assertEqual(self.repo.messages(rel, gate=gate), expected)
+    def test_questions_are_listed_without_errors(self):
+        # 要確認はどの状態の文書に残っていてもエラーにせず、知らせとして並べる
+        for state in specdoc.STATES:
+            for rel in (REQ, DESIGN, PLAN):
+                with self.subTest(state=state, rel=rel):
+                    self.repo.write_valid()
+                    self.write_question(rel, state)
+                    self.assertEqual(self.repo.check(rel), [])
+                    self.assertEqual(self.repo.notes(rel), [(rel, OPEN_QUESTION)])
 
-    def test_gate_also_checks_upper_documents(self):
-        # ゲートは上位の文書にも当てる。詳細設計書には、2 つ上の要件定義書に残る要確認も効く
-        self.write_question(REQ, "plan", "approved")
-        self.repo.write_design()
-        self.repo.write_plan()
+    def test_questions_of_upper_documents_are_listed(self):
+        # 詳細設計書の check は、2 つ上の要件定義書に残る要確認も並べる
+        self.write_question(REQ, "approved")
+        self.write_question(PLAN)
         self.assertEqual(self.repo.check(PLAN), [])
-        for gate in specdoc.STAGES:
-            with self.subTest(gate=gate):
-                expected = [(REQ, "解決する工程が plan の要確認が残っている: Q-001")] if gate in ("plan", "release") else []
-                self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate=gate)], expected)
+        self.assertEqual(self.repo.notes(PLAN), [(PLAN, OPEN_QUESTION), (REQ, OPEN_QUESTION)])
+        # 渡した文書が別の文書の上位の文書でもあれば、1 回だけ並べる
+        self.assertEqual(self.repo.notes(PLAN, REQ), [(PLAN, OPEN_QUESTION), (REQ, OPEN_QUESTION)])
 
-    def test_gate_requires_every_upper_document_to_be_approved(self):
-        # 2 つ上の文書が approved でないことは、1 つ上の文書の上流の照合で止まる
+    def test_upper_documents_are_not_checked(self):
+        # 上流が approved かは、上流に挙げた文書だけを見る。2 つ上の文書は、1 つ上の文書の check が見る
         self.repo.write_requirements(state="draft")
-        self.repo.write_design()
-        self.repo.write_plan()
         self.assertEqual(self.repo.check(PLAN), [])
-        self.assertEqual([(p, m) for p, _, m in self.repo.check(PLAN, gate="plan")], [(DESIGN, f"上流が approved でない: {REQ}")])
+        self.assertEqual(self.repo.messages(DESIGN), [f"上流が approved でない: {REQ}"])
 
-    def test_gate_with_missing_upper_document(self):
-        # 2 つ上の文書が無いことは、1 つ上の文書の照合が出す。上位の文書をたどっても、同じエラーを重ねて出さない
+    def test_questions_with_missing_upper_document(self):
+        # 2 つ上の文書が無くても、並べられる要確認を並べる。無いことは 1 つ上の文書の check が出す
+        self.write_question(PLAN)
         self.repo.path(REQ).unlink()
         self.assertEqual(self.repo.check(PLAN), [])
-        errors = self.repo.check(PLAN, gate="plan")
-        self.assertIn(f"上流のファイルが無い: {REQ}", [m for _, _, m in errors])
-        self.assertEqual(errors, self.repo.check(DESIGN))
+        self.assertEqual(self.repo.notes(PLAN), [(PLAN, OPEN_QUESTION)])
 
-    def test_gate_with_unreadable_upper_document(self):
-        # 2 つ上の文書が読めないことは、1 つ上の文書の上流の照合と、その文書の照合が 1 回ずつ出す
+    def test_questions_with_unreadable_upper_document(self):
+        # 2 つ上の文書が読めなくても、並べられる要確認を並べる。読めないことは 1 つ上の文書の check が出す
+        self.write_question(PLAN)
         lock(self, self.repo.path(REQ))
         self.assertEqual(self.repo.check(PLAN), [])
-        errors = self.repo.check(PLAN, gate="plan")
-        messages = [m for _, _, m in errors]
-        self.assertTrue(any(m.startswith(f"上流のファイル {REQ} を読めない: ") for m in messages), messages)
-        self.assertTrue(any(m.startswith("読めない: ") for m in messages), messages)
-        self.assertEqual(errors, self.repo.check(DESIGN, REQ))
-
-    def test_review_and_approved_docs_keep_only_questions_for_later_stages(self):
-        for state in ("review", "approved"):
-            for rel, stage in ((REQ, "requirements"), (DESIGN, "design"), (PLAN, "plan")):
-                with self.subTest(state=state, rel=rel, stage=stage):
-                    self.repo.write_valid()
-                    self.write_question(rel, stage, state)
-                    self.assertEqual(
-                        self.repo.messages(rel), [f"{state} の文書に、解決する工程が {stage} の要確認が残っている: Q-001"]
-                    )
-            for rel, stage in ((REQ, "design"), (DESIGN, "plan"), (PLAN, "release")):
-                with self.subTest(state=state, rel=rel, stage=stage):
-                    self.repo.write_valid()
-                    self.write_question(rel, stage, state)
-                    self.assertEqual(self.repo.check(rel), [])
+        self.assertEqual(self.repo.notes(PLAN), [(PLAN, OPEN_QUESTION)])
 
     def test_approved_flag(self):
         self.assertEqual(self.repo.messages(PLAN, approved=True), ["状態が approved でない"])
@@ -831,12 +796,12 @@ class CheckTest(unittest.TestCase):
                 self.repo.write_requirements(with_body(REQ_BODIES, 明示的除外事項=f"- 例: [x]({dest})"))
                 self.assertEqual(self.repo.messages(REQ), ["リンク先にバックスラッシュを入れない（区切りは / にする）"])
 
-    def test_gate_does_not_look_downstream(self):
-        # ゲートが見るのは渡した文書とその上位の文書だけ。下位の文書は見ない
+    def test_check_does_not_look_downstream(self):
+        # 見るのは渡した文書とその上位の文書だけ。下流に残る要確認は並べず、下流が無くてもエラーにしない
+        self.write_question(PLAN)
+        self.assertEqual(self.repo.notes(REQ, DESIGN), [])
         self.repo.path(PLAN).unlink()
-        for gate in specdoc.STAGES:
-            with self.subTest(gate=gate):
-                self.assertEqual(self.repo.check(gate=gate), [])
+        self.assertEqual(self.repo.check(), [])
 
     def test_unreadable_file(self):
         lock(self, self.repo.path(REQ))
@@ -902,9 +867,9 @@ class SplitTest(unittest.TestCase):
         self.repo.path(self.child_path("billing")).unlink()
         self.assertIn(f"基本設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
 
-    def test_gate_of_child_plan_reaches_parent_design(self):
-        # 子の詳細設計書のゲートは、上流をたどって親の基本設計書にも当たる
-        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし", 要確認=question("plan")))
+    def test_questions_of_child_plan_reach_parent_design(self):
+        # 子の詳細設計書の check は、上流をたどって親の基本設計書に残る要確認も並べる
+        self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし", 要確認=QUESTION))
         self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
         self.repo.write(PLAN, build_doc("plan", meta(upstream=[DESIGN]), {}))
         s = (
@@ -915,9 +880,7 @@ class SplitTest(unittest.TestCase):
         path = f"{SPEC}/billing/plan.md"
         self.repo.write(path, build_doc("plan", meta("draft", parent=PLAN, upstream=up), {"シナリオ": s}, True))
         self.assertEqual(self.repo.check(path), [])
-        self.assertEqual(
-            [(p, m) for p, _, m in self.repo.check(path, gate="plan")], [(DESIGN, "解決する工程が plan の要確認が残っている: Q-001")]
-        )
+        self.assertEqual(self.repo.notes(path), [(DESIGN, OPEN_QUESTION)])
 
     def test_parent_plan_must_not_receive_child_ac(self):
         s = PLAN_BODIES["シナリオ"].split("\n- S-002")[0].replace("AC-001", "AC-billing-001")
@@ -1045,11 +1008,12 @@ class SplitTest(unittest.TestCase):
         self.assertIn('<a href="../requirements.html#R-001">R-001</a>', out)
         self.assertIn('<dt>親</dt>\n<dd><a href="../design.html">基本設計書: 請求書の一括発行</a></dd>', out)
 
-    def test_gate_does_not_look_for_children(self):
-        self.repo.path(self.child_path("billing")).unlink()
-        for gate in specdoc.STAGES:
-            with self.subTest(gate=gate):
-                self.assertEqual(self.repo.check(DESIGN, gate=gate), [])
+    def test_check_does_not_look_for_children(self):
+        # 子の文書が無くてもエラーにせず、子に残る要確認も並べない
+        self.repo.replace(self.child_path("billing"), "## 要確認\n\nなし", f"## 要確認\n\n{QUESTION}")
+        self.repo.path(self.child_path("listing")).unlink()
+        self.assertEqual(self.repo.check(DESIGN), [])
+        self.assertEqual(self.repo.notes(DESIGN), [])
 
 
 class ProxyTest(unittest.TestCase):
@@ -1470,14 +1434,15 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out.split("\n")[:3], [f"{SPEC}/requirements.html", f"{SPEC}/design.html", f"{SPEC}/plan.html"])
 
-    def test_check_gate_takes_english_stage_names(self):
-        self.repo.path(PLAN).unlink()
-        self.assertEqual(self.run_main("check", "--gate", "release", REQ, DESIGN), (0, "ok: 2 件\n"))
-        # 上位の文書も照合した数に入る
-        self.assertEqual(self.run_main("check", "--gate", "release", DESIGN), (0, "ok: 2 件\n"))
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
-            self.run_main("check", "--gate", "実装", REQ)
-        self.assertEqual(cm.exception.code, 2)
+    def test_check_lists_questions_without_failing(self):
+        # 渡した文書と上位の文書に残る要確認を並べる。終了コードは変えず、上位の文書は照合した数に入れない
+        self.repo.write_requirements(with_body(REQ_BODIES, 要確認=QUESTION))
+        self.repo.write_plan(with_body(PLAN_BODIES, 要確認=QUESTION))
+        lines = {rel: self.repo.read(rel).split("\n").index("- Q-001: 締め日は何日か") + 1 for rel in (REQ, PLAN)}
+        self.assertEqual(
+            self.run_main("check", PLAN),
+            (0, f"{PLAN}:{lines[PLAN]}: {OPEN_QUESTION}\n{REQ}:{lines[REQ]}: {OPEN_QUESTION}\nok: 1 件\n"),
+        )
 
     def test_proxy_takes_a_command_one_file_and_a_name(self):
         for argv in (("submit", REQ, DESIGN, "山田"), ("submit", REQ), ("check", REQ, "山田")):
@@ -1486,14 +1451,12 @@ class CliTest(unittest.TestCase):
                     self.run_main("proxy", *argv)
                 self.assertEqual(cm.exception.code, 2)
 
-    def test_check_gate_and_approved_together(self):
-        self.repo.write_plan(with_body(PLAN_BODIES, 要確認=question("release")))
-        code, out = self.run_main("check", "--gate", "release", "--approved", PLAN)
+    def test_check_approved_with_questions(self):
+        # エラーの後に要確認を並べる
+        self.repo.write_plan(with_body(PLAN_BODIES, 要確認=QUESTION))
+        code, out = self.run_main("check", "--approved", PLAN)
         self.assertEqual(code, 1)
-        self.assertEqual(
-            sorted(line.split(": ", 1)[1] for line in out.splitlines()),
-            ["状態が approved でない", "解決する工程が release の要確認が残っている: Q-001"],
-        )
+        self.assertEqual([line.split(": ", 1)[1] for line in out.splitlines()], ["状態が approved でない", OPEN_QUESTION])
 
     def test_proxy_errors(self):
         # proxy は置き場の合った型の文書だけを受け付ける
@@ -1553,7 +1516,7 @@ class CliTest(unittest.TestCase):
 
     def test_stderr_is_utf8_whatever_the_locale(self):
         # 引数の誤り（argparse）が出る標準エラーも同じ
-        result = self.run_script("check", "--gate", "実装", "nothing")
+        result = self.run_script("proxy", "実装", "nothing", "山田")
         self.assertEqual(result.returncode, 2, result)
         self.assertIn("'実装'", result.stderr.decode("utf-8"))
 

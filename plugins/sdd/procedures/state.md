@@ -8,13 +8,12 @@
 
 1. 文書は 1 本だけ受け取る。2 本以上を渡されたら、1 本ずつ呼ぶよう伝えて止まる
 2. 今のブランチがデフォルトブランチなら、作業ブランチに切り替えてから呼ぶよう伝えて止まる。デフォルトブランチが分からなければ、ユーザーに聞く
-3. 文書の工程は、ファイル名で決まる（requirements.md は `requirements`、design.md は `design`、plan.md は `plan`）
-4. 状態が SKILL.md の前の状態でなければ、今の状態を伝えて止まる。文書が commit 済みなら、最後の commit の状態（`git show HEAD:<文書>` の管理情報の状態）が今の状態と違うときも止まる。前の状態が `draft` でない skill（approve・unapprove）では、状態が同じでも、文書に commit していない変更があれば止まる。止まるときに文書に commit していない変更があれば、前に状態を変えた skill が commit の前に止まったか、状態を手で書き換えたおそれがあることと、その変更を commit するか元に戻してから呼び直すことも伝える
-5. SKILL.md に前の照合があれば行う。エラーが出たら、状態を変えずにエラーを示して止まる
-6. `git config user.name` で名前を得る。空なら止まる
-7. `python3 <plugin>/scripts/specdoc.py proxy <skill の名前> <文書> <名前>` で、決まった人（`本人`）か、そうでない（`代理`）かを得る。エラーが出たら、エラーを示して止まる。代理でも止めない
-8. SKILL.md の書くことを、文書の管理情報に書く
-9. SKILL.md に後の照合があれば通し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す
-10. 文書だけを commit する（`git add -- <文書>` の後に `git commit -m "<メッセージ>" -- <文書>`）。メッセージは SKILL.md の commit メッセージにし、代理なら代理の形にする。リポジトリにコミットメッセージの決まりがあれば、それに合わせる（代理の印は残す）。push はしない
+3. 状態が SKILL.md の前の状態でなければ、今の状態を伝えて止まる。文書が commit 済みなら、最後の commit の状態（`git show HEAD:<文書>` の管理情報の状態）が今の状態と違うときも止まる。前の状態が `draft` でない skill（approve・unapprove）では、状態が同じでも、文書に commit していない変更があれば止まる。止まるときに文書に commit していない変更があれば、前に状態を変えた skill が commit の前に止まったか、状態を手で書き換えたおそれがあることと、その変更を commit するか元に戻してから呼び直すことも伝える
+4. SKILL.md に前の照合があれば行う。エラーが出たら、状態を変えずにエラーを示して止まる
+5. `git config user.name` で名前を得る。空なら止まる
+6. `python3 <plugin>/scripts/specdoc.py proxy <skill の名前> <文書> <名前>` で、決まった人（`本人`）か、そうでない（`代理`）かを得る。エラーが出たら、エラーを示して止まる。代理でも止めない
+7. SKILL.md の書くことを、文書の管理情報に書く
+8. SKILL.md に後の照合があれば通し、`python3 <plugin>/scripts/specdoc.py html <文書>` で HTML を出す
+9. 文書だけを commit する（`git add -- <文書>` の後に `git commit -m "<メッセージ>" -- <文書>`）。メッセージは SKILL.md の commit メッセージにし、代理なら代理の形にする。リポジトリにコミットメッセージの決まりがあれば、それに合わせる（代理の印は残す）。push はしない
 
-9・10 で失敗したら、8 で書いたことを元に戻し、10 で index に足していれば `git restore --staged -- <文書>` で外し、HTML を出していれば出し直してから、エラーを示して止まる。
+8・9 で失敗したら、7 で書いたことを元に戻し、9 で index に足していれば `git restore --staged -- <文書>` で外し、HTML を出していれば出し直してから、エラーを示して止まる。
