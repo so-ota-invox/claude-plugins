@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する。
+"""要件定義書・基本設計書・詳細設計書を型と照合し、HTML に変換する。
 
 使い方（<plugin> は sdd plugin のディレクトリの絶対パス）:
   python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
@@ -1278,13 +1278,13 @@ def check_upstream(doc, err):
 def listed_in_parent(doc, err):
     top = doc.spec_doc("design")
     if top is None:
-        err(1, f"親の設計書が無い: {doc.spec_path('design')}")
+        err(1, f"親の基本設計書が無い: {doc.spec_path('design')}")
         return None
     if top.read_error is not None:
-        err(1, f"親の設計書 {doc.spec_path('design')} を読めない: {top.read_error}")
+        err(1, f"親の基本設計書 {doc.spec_path('design')} を読めない: {top.read_error}")
         return None
     if not top.split or doc.child not in top.split:
-        err(1, f"親の設計書の「サブ機能分割」に無い子: {doc.child}")
+        err(1, f"親の基本設計書の「サブ機能分割」に無い子: {doc.child}")
         return None
     return top
 
@@ -1315,14 +1315,14 @@ def check_coverage(doc, err):
             return
         design = doc.spec_doc("design", doc.child)
         if design is None:
-            err(1, f"設計書が無い: {doc.spec_path('design', doc.child)}")
+            err(1, f"基本設計書が無い: {doc.spec_path('design', doc.child)}")
             return
         covered = set()
         for line, acs in doc.s_acs.values():
             for ac in acs:
                 covered.add(ac)
                 if ac not in design.defs and doc.resolve(ac) is not None:
-                    err(line, f"受け入れ基準には同じディレクトリの設計書の AC を書く: {ac}")
+                    err(line, f"受け入れ基準には同じディレクトリの基本設計書の AC を書く: {ac}")
         at = doc.heading_line(SCENARIO_SECTION)
         for ac in design.defs:
             if split_id(ac)[0] == "AC" and ac not in covered:
@@ -1704,7 +1704,7 @@ def format_errors(errors):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        prog="specdoc.py", description="要件定義書・基本設計書・実装プランを型と照合し、HTML に変換する"
+        prog="specdoc.py", description="要件定義書・基本設計書・詳細設計書を型と照合し、HTML に変換する"
     )
     sub = parser.add_subparsers(dest="command")
     sub.required = True

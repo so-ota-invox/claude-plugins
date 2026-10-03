@@ -485,7 +485,7 @@ class CheckTest(unittest.TestCase):
 
     def test_plan_without_design(self):
         self.repo.path(DESIGN).unlink()
-        self.assertIn(f"設計書が無い: {DESIGN}", self.repo.messages(PLAN))
+        self.assertIn(f"基本設計書が無い: {DESIGN}", self.repo.messages(PLAN))
 
     def test_scenario_fields(self):
         scenarios = (
@@ -639,7 +639,7 @@ class CheckTest(unittest.TestCase):
                     self.assertEqual(self.repo.messages(rel, gate=gate), expected)
 
     def test_gate_also_checks_upper_documents(self):
-        # ゲートは上位の文書にも当てる。実装プランには、2 つ上の要件定義書に残る要確認も効く
+        # ゲートは上位の文書にも当てる。詳細設計書には、2 つ上の要件定義書に残る要確認も効く
         self.write_question(REQ, "plan", "approved")
         self.repo.write_design()
         self.repo.write_plan()
@@ -891,7 +891,7 @@ class SplitTest(unittest.TestCase):
         self.assertEqual(self.repo.check(path), [])
         cases = [
             ("AC-listing-001", "下流か別の子の文書の番号は参照しない: AC-listing-001"),
-            ("AC-001", "受け入れ基準には同じディレクトリの設計書の AC を書く: AC-001"),
+            ("AC-001", "受け入れ基準には同じディレクトリの基本設計書の AC を書く: AC-001"),
         ]
         for ac, expected in cases:
             with self.subTest(ac=ac):
@@ -900,10 +900,10 @@ class SplitTest(unittest.TestCase):
                 self.assertIn(expected, messages)
                 self.assertIn("受ける S の無い AC: AC-billing-001", messages)
         self.repo.path(self.child_path("billing")).unlink()
-        self.assertIn(f"設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
+        self.assertIn(f"基本設計書が無い: {self.child_path('billing')}", self.repo.messages(path))
 
     def test_gate_of_child_plan_reaches_parent_design(self):
-        # 子の実装プランのゲートは、上流をたどって親の設計書にも当たる
+        # 子の詳細設計書のゲートは、上流をたどって親の基本設計書にも当たる
         self.repo.write_design(with_body(DESIGN_BODIES, サブ機能分割=SPLIT, 受け入れ基準="なし", 要確認=question("plan")))
         self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
         self.repo.write(PLAN, build_doc("plan", meta(upstream=[DESIGN]), {}))
@@ -968,13 +968,13 @@ class SplitTest(unittest.TestCase):
         self.write_child("refund", "- AC-refund-001: 取り消せる\n  - 要件: R-001")
         # 親は子のディレクトリを見ない。子の check が親の「サブ機能分割」と照合する
         self.assertEqual(self.repo.check(DESIGN), [])
-        self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の設計書の「サブ機能分割」に無い子: refund"])
+        self.assertEqual(self.repo.messages(self.child_path("refund")), ["親の基本設計書の「サブ機能分割」に無い子: refund"])
 
     def test_child_of_unsplit_parent(self):
         # 親が「分割しない。理由: …」のときは、どの子も「サブ機能分割」に無い
         self.repo.write_design(DESIGN_BODIES)
         self.write_child("billing", "- AC-billing-001: 選んだ請求書をまとめて発行できる\n  - 要件: R-001、R-003")
-        self.assertEqual(self.repo.messages(self.child_path("billing")), ["親の設計書の「サブ機能分割」に無い子: billing"])
+        self.assertEqual(self.repo.messages(self.child_path("billing")), ["親の基本設計書の「サブ機能分割」に無い子: billing"])
 
     def test_dependency_must_come_first(self):
         split = SPLIT.replace("依存: billing", "依存: refund")
@@ -1012,23 +1012,23 @@ class SplitTest(unittest.TestCase):
         self.assertIn(f"子の文書には親を書く: {DESIGN}", self.repo.messages(self.child_path("billing")))
         self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=[REQ])
         self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書いていない文書: {DESIGN}"])
-        # 別の子の設計書は上流に書けない
+        # 別の子の基本設計書は上流に書けない
         sibling = self.child_path("listing")
         up = [REQ, DESIGN, sibling]
         self.write_child("billing", "- AC-billing-001: 発行できる\n  - 要件: R-001、R-003", upstream=up)
         self.assertEqual(self.repo.messages(self.child_path("billing")), [f"上流に書けるのは {REQ}・{DESIGN} だけ: {sibling}"])
 
     def test_unreadable_parent(self):
-        # 親の設計書を読めないときは、読めないと知らせる。「サブ機能分割」に無いとは言わない
+        # 親の基本設計書を読めないときは、読めないと知らせる。「サブ機能分割」に無いとは言わない
         lock(self, self.repo.path(DESIGN))
         messages = self.repo.messages(self.child_path("billing"))
-        self.assertTrue(any(m.startswith(f"親の設計書 {DESIGN} を読めない: ") for m in messages), messages)
+        self.assertTrue(any(m.startswith(f"親の基本設計書 {DESIGN} を読めない: ") for m in messages), messages)
         self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
 
     def test_missing_parent(self):
         self.repo.path(DESIGN).unlink()
         messages = self.repo.messages(self.child_path("billing"))
-        self.assertIn(f"親の設計書が無い: {DESIGN}", messages)
+        self.assertIn(f"親の基本設計書が無い: {DESIGN}", messages)
         self.assertFalse(any("サブ機能分割" in m for m in messages), messages)
 
     def test_child_data_use_refers_to_parent_tables(self):

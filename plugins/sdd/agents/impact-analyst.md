@@ -1,6 +1,6 @@
 ---
 name: impact-analyst
-description: 要件定義書・設計書を起草する前に既存コードを読み、要件が関わる既存機能・呼び出し元・データの流れ・影響範囲と、マイグレーションや ORM から起こした現在の ER を file:line 付きで返す。読むだけで、ファイルを書かない。
+description: 要件定義書・基本設計書を起草する前に既存コードを読み、要件が関わる既存機能・呼び出し元・データの流れ・影響範囲と、マイグレーションや ORM から起こした現在の ER を file:line 付きで返す。読むだけで、ファイルを書かない。
 model: sonnet
 effort: high
 tools: Read, Glob, Grep
