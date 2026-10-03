@@ -4,7 +4,7 @@
 使い方（<plugin> は sdd plugin のディレクトリの絶対パス）:
   python3 <plugin>/scripts/specdoc.py check [--gate requirements|design|plan|release] [--approved] <ファイル>...
   python3 <plugin>/scripts/specdoc.py html <ファイル>...
-  python3 <plugin>/scripts/specdoc.py hash <ファイル>
+  python3 <plugin>/scripts/specdoc.py proxy submit|approve|unapprove <ファイル> <名前>
 
 型は plugin の formats/ に置く。Python 3.9 以上の標準ライブラリだけで、macOS と Linux（WSL を含む）で動く。
 """
@@ -12,7 +12,6 @@
 import argparse
 import difflib
 import errno
-import hashlib
 import html
 import os
 import re
@@ -31,7 +30,9 @@ LEGEND = (
 # 管理情報の項目名はここを正とする（下の ID_FIELDS・SPLIT_FIELDS の項目名も同じ）。read_meta などは同じ文字列で引くので、
 # 名前を変えるときは揃える
 META_KEYS = ("著者", "状態", "承認者", "凡例", "親", "上流", "元の文書")
-STATES = ("draft", "approved")
+STATES = ("draft", "review", "approved")
+# 状態を変えるコマンド。proxy は、名前の人がそのコマンドの決まった人か（本人）、そうでないか（代理）を出す
+PROXY_COMMANDS = ("submit", "approve", "unapprove")
 STAGES = ("requirements", "design", "plan", "release")
 SCENARIO_KINDS = ("正常", "異常", "境界")
 DIFF_KINDS = ("既存", "追加", "変更", "削除")
@@ -57,6 +58,8 @@ NFR_SECTION = ("非機能要件",)
 AC_SECTION = ("受け入れ基準",)
 SCENARIO_SECTION = ("シナリオ",)
 QUESTION_SECTION = ("要確認",)
+# 下に見出しを持っても本文を空にしない見出し。ほかの見出しは、下に見出しを持てば本文が無くてよい
+BODY_PARENTS = {"requirements": ("対象サービス", "機能概要")}
 
 # 番号を定義する見出しと、そこで定義する番号の種類
 DEF_SECTIONS = {
@@ -80,7 +83,6 @@ MERMAID_VERSION = "12.0.0"  # 上げるときは、下の MERMAID_INTEGRITY も�
 MERMAID_INTEGRITY = "sha384-xzghz1GQ5u9HCpVskeDPqMsdogD1yvuMQbEK53+wi+G70+6J1AG0L2cfi9PHjDWI"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
 
-HASH_LEN = 12
 # 見つからないとみなす errno。ほかの OSError は「調べられない」として知らせる
 MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
 
@@ -88,12 +90,10 @@ MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.ENAMETOOLONG)
 CHILD = r"[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)?"
 CHILD_RE = re.compile(rf"^{CHILD}$")
 CHILD_RULE = "どの語も英小文字で始まる英小文字・数字の 1〜2 語（2 語はハイフンでつなぐ）"
-# <id> と <slug> の境目は機械では分からないので、最後の語が <slug> の規則に合うかだけを見る
-SPEC_DIR_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-[a-z0-9]+$")
+SPEC_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ID_RE = re.compile(rf"(?<![A-Za-z0-9-])(R|AC|S|Q)-(?:({CHILD})-)?(\d{{3}})(?![A-Za-z0-9-])")
 DEF_RE = re.compile(rf"^((?:R|AC|S|Q)-(?:{CHILD}-)?\d{{3}}):(?: (.*))?$")
 KV_RE = re.compile(r"^([^\s:]+):(?: (.*))?$")
-UPSTREAM_RE = re.compile(rf"^([^\s@]+)@([0-9a-f]{{{HASH_LEN}}})$")
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 COLUMN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
 HEADING_RE = re.compile(r"^(#{1,6})(?: +(.*))?$")
@@ -144,13 +144,6 @@ li:target { background: #fff8c5; }
   code, pre, th, dl.meta { background: #161b22; }
   li:target { background: #3b2e00; }
 }"""
-
-
-def blob_hash(data):
-    """改行を LF にした中身の git blob hash を返す。CRLF で取り出した作業ツリーでも、LF のときと同じ値になる。"""
-    data = data.replace(b"\r\n", b"\n")
-    # 改ざんの検出には使わない（git と同じ値を出すだけ）。FIPS を有効にした環境でも拒否されないようにする
-    return hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
 
 
 def nfc(text):
@@ -726,7 +719,6 @@ class Doc:
         self.split = None  # 子の名前 -> [受ける R]
         self.tables = None  # テーブル名 -> カラム名の集合
         self.data_use = []  # [(行, テーブル, カラム)]
-        self.hash = None  # 上流に書く hash。読めなければ None
         self.read_error = None
         try:
             data = path.read_bytes()
@@ -737,7 +729,6 @@ class Doc:
             self.syntax_errors = [(1, f"読めない: {self.read_error}")]
             self.locate()  # 置き場が合っていれば、html が古い .html を消せるようにする
             return
-        self.hash = blob_hash(data)[:HASH_LEN]
         try:
             text = data.decode("utf-8")
             decode_error = False
@@ -826,18 +817,17 @@ class Doc:
                 parts = self.path.relative_to(anc).parts
                 break
         else:
-            self.add_error(1, "specs/<id>-<slug>/ の下に置く")
+            self.add_error(1, "specs/<slug>/ の下に置く")
             return
         if len(parts) not in (2, 3):
-            self.add_error(1, "specs/<id>-<slug>/ か、その下の子のディレクトリに置く")
+            self.add_error(1, "specs/<slug>/ か、その下の子のディレクトリに置く")
             return
         if not SPEC_DIR_RE.match(parts[0]):
-            # hash が出す `パス@hash` を上流の行として check が読めるようにする
-            self.add_error(1, "specs/ の下のディレクトリ名は <id>-<slug> にする（英数字をハイフンでつなぎ、最後の語は英小文字・数字）")
+            self.add_error(1, "specs/ の下のディレクトリ名は <slug> にする（英小文字・数字をハイフンでつなぐ）")
             return
         if len(parts) == 3:
             if self.doc_type == "requirements":
-                self.add_error(1, "要件定義書は分けない。specs/<id>-<slug>/requirements.md に置く")
+                self.add_error(1, "要件定義書は分けない。specs/<slug>/requirements.md に置く")
                 return
             if not CHILD_RE.match(parts[1]) or parts[1] in RESERVED_CHILD_NAMES:
                 self.add_error(1, f"子のディレクトリ名は、{CHILD_RULE}にする")
@@ -851,7 +841,7 @@ class Doc:
             self.add_error(1, f"パスを調べられない: {e.strerror or e}")
             return
         if not at_root:
-            # 上流と親のパス、hash が出すパスをリポジトリルートからにする
+            # 上流と親のパスをリポジトリルートからにする
             self.add_error(1, "specs/ はリポジトリルート（.git のあるディレクトリ）の直下に置く")
             return
         if not exact:
@@ -955,7 +945,7 @@ class Doc:
         if self.state == "approved" and (approver is None or not approver[1]):
             err(approver[0].line if approver else state[0].line, "approved のときは承認者を書く")
         # 状態が無い・誤っているときは、承認者のエラーを重ねず状態のエラーだけを出す
-        if self.state == "draft" and approver is not None:
+        if self.state in ("draft", "review") and approver is not None:
             err(approver[0].line, "承認者は approved のときだけ書く")
         legend = need("凡例")
         if legend and legend[1] != LEGEND:
@@ -981,9 +971,6 @@ class Doc:
                 err(item.line, "上流は下の箇条に 1 件ずつ書く")
             if not item.children:
                 err(item.line, "上流が空")
-            for c in item.children:
-                if not UPSTREAM_RE.match(c.text):
-                    err(c.line, "上流は `パス@hash` の形で書く（specdoc.py hash の出力）")
         source = self.meta.get("元の文書")
         if source is not None and not source[1]:
             err(source[0].line, "元の文書が空")
@@ -1008,7 +995,7 @@ class Doc:
         heads = [(k, b) for k, b in enumerate(self.blocks) if b.kind == "heading" and b.level >= 2]
         for n, (k, b) in enumerate(heads):
             nxt = heads[n + 1] if n + 1 < len(heads) else None
-            if nxt and nxt[1].level > b.level:
+            if nxt and nxt[1].level > b.level and b.text not in BODY_PARENTS.get(self.doc_type, ()):
                 continue
             end = nxt[0] if nxt else len(self.blocks)
             if end == k + 1:
@@ -1266,10 +1253,7 @@ def check_upstream(doc, err):
     required = required_upstreams(doc)
     listed = set()
     for c in item.children:
-        m = UPSTREAM_RE.match(c.text)
-        if not m:
-            continue
-        rel, short = m.group(1), m.group(2)
+        rel = c.text
         if rel not in required:
             err(c.line, f"上流に書けるのは {MSG_SEP.join(required)} だけ: {rel}")
             continue
@@ -1284,8 +1268,6 @@ def check_upstream(doc, err):
         if up.read_error is not None:
             err(c.line, f"上流のファイル {rel} を読めない: {up.read_error}")
             continue
-        if up.hash != short:
-            err(c.line, f"上流の hash が合わない: {rel}（今は {up.hash}）。下流に影響を反映してから書き換える")
         if up.root is not None and up.state != "approved":
             err(c.line, f"上流が approved でない: {rel}")
     for rel in required:
@@ -1360,8 +1342,8 @@ def check_gate(doc, gate, require_approved, err):
     for q, (line, stage) in doc.q_stage.items():
         if gate and STAGES.index(stage) <= STAGES.index(gate):
             err(line, f"解決する工程が {stage} の要確認が残っている: {q}")
-        elif doc.state == "approved" and stage == doc.doc_type:
-            err(line, f"approved の文書に、解決する工程が {stage} の要確認が残っている: {q}")
+        elif doc.state in ("review", "approved") and stage == doc.doc_type:
+            err(line, f"{doc.state} の文書に、解決する工程が {stage} の要確認が残っている: {q}")
     if require_approved and doc.state != "approved":
         entry = doc.meta.get("状態")
         err(entry[0].line if entry else 1, "状態が approved でない")
@@ -1478,13 +1460,12 @@ class Renderer:
             key, value = m.group(1), (m.group(2) or "").strip()
             out.append(f"<dt>{esc(key)}</dt>")
             if key == "親" and value:
-                out.append(f"<dd>{self.doc_link(value, None)}</dd>")
+                out.append(f"<dd>{self.doc_link(value)}</dd>")
             elif key == "上流":
                 out.append("<dd>")
                 out.append("<ul>")
                 for c in item.children:
-                    um = UPSTREAM_RE.match(c.text)
-                    out.append(f"<li>{self.doc_link(um.group(1), c.text) if um else esc(c.text)}</li>")
+                    out.append(f"<li>{self.doc_link(c.text)}</li>")
                 out.append("</ul>")
                 out.append("</dd>")
             else:
@@ -1492,10 +1473,10 @@ class Renderer:
         out.append("</dl>")
         return out
 
-    def doc_link(self, rel, code):
+    def doc_link(self, rel):
         """上流や親へのリンク。表示名は相手の文書の見出しから取る。"""
         if bad_repo_path(rel):
-            return esc(code or rel)
+            return esc(rel)
         target = self.doc.root.joinpath(*rel.split("/"))
         href = self.href_to(target)
         if SCHEME_RE.match(href) or href[:1] <= " ":
@@ -1504,15 +1485,15 @@ class Renderer:
         other = self.doc.ws.load(target) if target.name in DOC_FILES else None
         if other is not None and other.title_block is not None:
             label = plain(other.title_block.inline)
-        link = f'<a href="{esc(self.html_href(href, target))}">{esc(label)}</a>'
-        return f"{link} <code>{esc(code)}</code>" if code else link
+        return f'<a href="{esc(self.html_href(href, target))}">{esc(label)}</a>'
 
     def bullets(self, items):
         out = ["<ul>"]
         for it in items:
             ident = self.doc.anchors.get(id(it))
             attr = f' id="{ident}"' if ident else ""
-            body = self.inline(it.inline)
+            # 番号の定義の行は定義する番号で始まる。その番号は自分へのリンクにしない（collect_refs が参照に数えないのと同じ）
+            body = self.inline(it.inline, own=ident)
             if it.children:
                 out.append(f"<li{attr}>{body}")
                 out.extend(self.bullets(it.children))
@@ -1533,11 +1514,12 @@ class Renderer:
         out.append("</table>")
         return out
 
-    def inline(self, tokens, link_ids=True):
+    def inline(self, tokens, link_ids=True, own=None):
+        """own は、最初のトークンの中で、最初の 1 つだけリンクにしない番号。"""
         parts = []
         for tok in tokens:
             if tok[0] == "text":
-                parts.append(self.text(tok[1]) if link_ids else esc(tok[1]))
+                parts.append(self.text(tok[1], own) if link_ids else esc(tok[1]))
             elif tok[0] == "code":
                 parts.append(f"<code>{esc(tok[1])}</code>")
             elif tok[0] == "bold":
@@ -1546,14 +1528,18 @@ class Renderer:
                 href = self.link_href(tok[2])
                 label = self.inline(tok[1], False)
                 parts.append(f'<a href="{esc(href)}">{label}</a>' if href is not None else label)
+            own = None
         return "".join(parts)
 
-    def text(self, s):
-        """定義のある番号を、定義へのリンクにする。"""
+    def text(self, s, own=None):
+        """定義のある番号を、定義へのリンクにする。own と同じ番号は、最初の 1 つだけリンクにしない。"""
         out = []
         pos = 0
         for m in ID_RE.finditer(s):
             ident = m.group(0)
+            if ident == own:
+                own = None
+                continue
             target = self.doc.resolve(ident)
             if target is None:
                 continue
@@ -1664,8 +1650,12 @@ def run_html(args):
     return written, errors, notes
 
 
-def run_hash(arg):
-    """上流に書く パス@hash の行（エラーがあれば None）とエラーを返す。置き場の合った型の文書だけを受け付ける。"""
+def run_proxy(command, arg, name):
+    """name の人が command の決まった人なら「本人」、そうでなければ「代理」（エラーがあれば None）と、エラーを返す。
+
+    決まった人は、submit が著者、approve が上流の文書の著者のどれか（要件定義書は誰でも）、unapprove が著者か approve の決まった人。
+    代理だったことを残すかを決めるためだけに使い、止めるためには使わない。置き場の合った型の文書だけを受け付ける。
+    """
     files, errors = expand([arg])
     if files:
         doc = Workspace().load(files[0])
@@ -1673,9 +1663,26 @@ def run_hash(arg):
             errors.append((doc.path, 1, f"読めない: {doc.read_error}"))
         elif doc.root is None:
             errors.extend((doc.path, line, msg) for line, msg in doc.local_errors)
+        elif not name.strip():
+            errors.append((doc.path, 1, "名前が空"))
     if errors:
         return None, errors
-    return f"{doc.path.relative_to(doc.root).as_posix()}@{doc.hash}", errors
+
+    def author(d):
+        entry = d.meta.get("著者")
+        return entry[1] if entry else None
+
+    deciders = set()
+    if command in ("submit", "unapprove"):
+        deciders.add(author(doc))
+    if command in ("approve", "unapprove"):
+        if doc.doc_type == "requirements":
+            return "本人", errors
+        for rel in required_upstreams(doc):
+            up = doc.ws.load(doc.root.joinpath(*rel.split("/")))
+            if up is not None:
+                deciders.add(author(up))
+    return ("本人" if name.strip() in deciders else "代理"), errors
 
 
 def display(path):
@@ -1709,8 +1716,10 @@ def main(argv=None):
     p.add_argument("paths", nargs="+", metavar="PATH")
     p = sub.add_parser("html", help="Markdown の隣に HTML を書き出す")
     p.add_argument("paths", nargs="+", metavar="PATH")
-    p = sub.add_parser("hash", help="上流に書く パス@hash を出す")
+    p = sub.add_parser("proxy", help="名前の人がコマンドの決まった人なら 本人、そうでなければ 代理 を出す")
+    p.add_argument("action", choices=PROXY_COMMANDS)
     p.add_argument("path", metavar="PATH")
+    p.add_argument("name", metavar="NAME")
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -1728,12 +1737,12 @@ def main(argv=None):
         for out in written:
             print(display(out))
         return 1 if errors else 0
-    upstream, errors = run_hash(args.path)
+    result, errors = run_proxy(args.action, args.path, args.name)
     for line in format_errors(errors):
         print(line)
     if errors:
         return 1
-    print(upstream)
+    print(result)
     return 0
 
 
