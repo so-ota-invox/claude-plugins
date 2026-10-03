@@ -1,4 +1,4 @@
-"""drivefile.py のデコードと zip の確かめを確かめる。"""
+"""drivefile.py のデコードと、保存したファイルの検査をテストする。"""
 
 import base64
 import contextlib
@@ -61,6 +61,13 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.out.read_bytes(), b"0123456789" * 10)
 
+    def test_decodes_a_tool_result_after_blank_lines(self):
+        content = base64.b64encode(b"%PDF").decode("ascii")
+        self.write_src("\n  " + json.dumps({"content": content}))
+        code, _ = self.decode()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.out.read_bytes(), b"%PDF")
+
     def test_errors(self):
         cases = {
             "JSON として読めない": '{"content": ',
@@ -69,7 +76,7 @@ class DecodeTest(unittest.TestCase):
             "base64 として読めない": "not base64!",
         }
         for want, text in cases.items():
-            with self.subTest(want):
+            with self.subTest(want=want):
                 self.write_src(text)
                 code, lines = self.decode()
                 self.assertEqual(code, 1)
@@ -82,6 +89,14 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(lines[0].startswith(f"{self.src}: 読めない: "), lines[0])
 
+    def test_input_that_is_not_utf8(self):
+        self.src.write_bytes(b"\xff\xfe")
+        code, lines = self.decode()
+        self.assertEqual(code, 1)
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith(f"{self.src}: UTF-8 として読めない: "), lines[0])
+        self.assertFalse(self.out.exists())
+
     def test_unwritable_output(self):
         self.write_tool_result(b"%PDF")
         self.out = self.dir / "missing" / "file.bin"
@@ -90,7 +105,13 @@ class DecodeTest(unittest.TestCase):
         self.assertTrue(lines[0].startswith(f"{self.out}: 書けない: "), lines[0])
 
     def test_lists_the_folders_of_a_sheet(self):
-        names = ["xl/workbook.xml", "xl/media/image1.png", "xl/drawings/drawing1.xml", "xl/drawings/_rels/drawing1.xml.rels"]
+        names = [
+            "xl/workbook.xml",
+            "xl/media/",
+            "xl/media/image1.png",
+            "xl/drawings/drawing1.xml",
+            "xl/drawings/_rels/drawing1.xml.rels",
+        ]
         self.write_tool_result(make_zip(names), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         code, lines = self.decode()
         self.assertEqual(code, 0)
@@ -98,6 +119,29 @@ class DecodeTest(unittest.TestCase):
             lines[1:],
             ["zip は壊れていない", "xl/media/: 1 件", "  xl/media/image1.png", "xl/drawings/: 1 件", "  xl/drawings/drawing1.xml"],
         )
+
+    def test_lists_the_folders_of_a_document_and_slides(self):
+        cases = {
+            "word": (
+                ["word/document.xml", "word/media/image1.png", "word/_rels/document.xml.rels"],
+                ["word/media/: 1 件", "  word/media/image1.png"],
+            ),
+            "ppt": (
+                [
+                    "ppt/presentation.xml",
+                    "ppt/media/image1.png",
+                    "ppt/notesSlides/notesSlide1.xml",
+                    "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+                ],
+                ["ppt/media/: 1 件", "  ppt/media/image1.png", "ppt/notesSlides/: 1 件", "  ppt/notesSlides/notesSlide1.xml"],
+            ),
+        }
+        for top, (names, want) in cases.items():
+            with self.subTest(top=top):
+                self.write_tool_result(make_zip(names))
+                code, lines = self.decode()
+                self.assertEqual(code, 0)
+                self.assertEqual(lines[1:], ["zip は壊れていない"] + want)
 
     def test_says_none_for_missing_folders(self):
         self.write_tool_result(make_zip(["ppt/presentation.xml"]))
@@ -117,6 +161,48 @@ class DecodeTest(unittest.TestCase):
         code, lines = self.decode()
         self.assertEqual(code, 1)
         self.assertEqual(lines, [f"保存した: {self.out}（{len(data)} バイト）", f"{self.out}: zip の中の word/document.xml が壊れている"])
+
+    def test_zip_with_an_unsupported_compression(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+            z.writestr("word/document.xml", b"x")
+            # 閉じるときに書く中央ディレクトリにだけ、未対応の圧縮方式を書く
+            z.infolist()[0].compress_type = 99
+        self.write_tool_result(buf.getvalue())
+        code, lines = self.decode()
+        self.assertEqual(code, 1)
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[1].startswith(f"{self.out}: zip として読めない: "), lines[1])
+
+    def test_accepts_a_shape_that_matches_the_suffix(self):
+        cases = {
+            "file.pdf": b"%PDF-1.4 body\n%%EOF\n",
+            "file.docx": make_zip(["word/document.xml"]),
+            "file.PDF": b"%PDF-1.4 body\n%%EOF",
+        }
+        for name, data in cases.items():
+            with self.subTest(name=name):
+                self.out = self.dir / name
+                self.write_tool_result(data)
+                code, lines = self.decode()
+                self.assertEqual(code, 0, lines)
+                self.assertEqual(self.out.read_bytes(), data)
+
+    def test_rejects_a_shape_that_does_not_match_the_suffix(self):
+        cases = {
+            "head.pdf": (b"body\n%%EOF\n", "PDF の先頭に %PDF- が無い"),
+            "tail.pdf": (b"%PDF-1.4 body", "PDF の末尾に %%EOF が無い"),
+            "early.pdf": (b"%PDF-1.4\n%%EOF\n" + b"x" * 1024, "PDF の末尾に %%EOF が無い"),
+            "cut.xlsx": (make_zip(["xl/workbook.xml"])[:-10], "Office 形式なのに zip でない"),
+            "text.pptx": (b"not a zip", "Office 形式なのに zip でない"),
+        }
+        for name, (data, error) in cases.items():
+            with self.subTest(name=name):
+                self.out = self.dir / name
+                self.write_tool_result(data)
+                code, lines = self.decode()
+                self.assertEqual(code, 1)
+                self.assertEqual(lines, [f"保存した: {self.out}（{len(data)} バイト）", f"{self.out}: {error}"])
 
     def test_takes_a_command_an_input_and_an_output(self):
         for argv in ([], ["decode", str(self.src)], ["decode", str(self.src), str(self.out), "extra"]):
