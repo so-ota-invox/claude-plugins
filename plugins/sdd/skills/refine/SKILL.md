@@ -6,7 +6,7 @@ argument-hint: <文書のパス> [<指摘のファイル>]
 
 # refine
 
-文書 1 本の review と反映をくり返す。`<plugin>` は sdd plugin のディレクトリ（この SKILL.md の 2 つ上）の絶対パス。直すときは `<plugin>/formats/common.md` と文書の種類の型に従う。
+文書 1 本の review と反映をくり返す。`<plugin>` は sdd plugin のディレクトリの絶対パス `${CLAUDE_PLUGIN_ROOT}`（置き換わっていなければ、この SKILL.md の 2 つ上）。直すときは `<plugin>/formats/common.md` と文書の種類の型に従う。
 
 「止まる」と書いたところでは、理由をユーザーに示して終える。この skill を呼んだ手順も続けない。
 

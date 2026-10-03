@@ -6,7 +6,7 @@ argument-hint: <チケット・依頼文・元の文書のパス、または書�
 
 # requirements
 
-要件定義書を起草する。`<plugin>` は sdd plugin のディレクトリ（この SKILL.md の 2 つ上）の絶対パス。
+要件定義書を起草する。`<plugin>` は sdd plugin のディレクトリの絶対パス `${CLAUDE_PLUGIN_ROOT}`（置き換わっていなければ、この SKILL.md の 2 つ上）。
 
 ## 使うもの
 

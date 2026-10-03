@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # approve
 
-ユーザーが承認をはっきり示したときだけ動く。自分の判断でこの skill を使わない。`<plugin>` は sdd plugin のディレクトリ（この SKILL.md の 2 つ上）の絶対パス。
+ユーザーが承認をはっきり示したときだけ動く。自分の判断でこの skill を使わない。`<plugin>` は sdd plugin のディレクトリの絶対パス `${CLAUDE_PLUGIN_ROOT}`（置き換わっていなければ、この SKILL.md の 2 つ上）。
 
 上流の文書の著者が、レビュー中の文書を承認する。要件定義書は、著者を含めて誰でも承認できる。`<plugin>/procedures/state.md` に従う。この skill で決まるもの:
 

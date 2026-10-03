@@ -6,7 +6,7 @@ argument-hint: <文書のパス> [<指摘のファイル>]
 
 # review
 
-文書 1 本を review し、指摘を文書の隣の `<文書名>.review.md` に書く。文書は直さない。`<plugin>` は sdd plugin のディレクトリ（この SKILL.md の 2 つ上）の絶対パス。agent は `<plugin>/procedures/agent.md` のとおりに起動する。
+文書 1 本を review し、指摘を文書の隣の `<文書名>.review.md` に書く。文書は直さない。`<plugin>` は sdd plugin のディレクトリの絶対パス `${CLAUDE_PLUGIN_ROOT}`（置き換わっていなければ、この SKILL.md の 2 つ上）。agent は `<plugin>/procedures/agent.md` のとおりに起動する。
 
 「止まる」と書いたところでは、理由をユーザーに示して終える。この skill を呼んだ手順も続けない。
 
